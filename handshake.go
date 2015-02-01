@@ -91,7 +91,7 @@ func parseHandshake(data []byte) (*Handshake, error) {
 	return h, nil
 }
 
-func (peer *Peer) newHandshake(msg []byte, isSetup int, state *CryptoAuthState) (*Handshake, error) {
+func (peer *Peer) newHandshake(msg []byte, isSetup int, state *State) (*Handshake, error) {
 
 	var err error
 

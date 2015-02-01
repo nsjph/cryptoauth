@@ -68,7 +68,7 @@ func (peer *Peer) parseDataPacket(nonce uint32, data []byte) (*DataPacket, error
 	return d, nil
 }
 
-func (peer *Peer) newDataPacket(msg []byte, state *CryptoAuthState) (*DataPacket, error) {
+func (peer *Peer) newDataPacket(msg []byte, state *State) (*DataPacket, error) {
 
 	n := make([]byte, 8)
 	var convertedNonce [24]byte

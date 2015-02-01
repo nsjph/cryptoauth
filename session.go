@@ -20,7 +20,7 @@ import (
 
 // Need a type to hold local state
 
-type CryptoAuthState struct {
+type State struct {
 	KeyPair   *KeyPair
 	Passwords map[[32]byte]*Passwd
 }

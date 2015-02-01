@@ -24,7 +24,7 @@ var (
 	errRequirePassword  = errors.New("Require password to connect to peer")
 )
 
-func (peer *Peer) connect(state *CryptoAuthState) error {
+func (peer *Peer) connect(state *State) error {
 
 	if peer.Established == true {
 		return errExistingSession
