@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"golang.org/x/crypto/curve25519"
 	"golang.org/x/crypto/nacl/box"
+	"log"
 )
 
 type Challenge struct {
@@ -40,10 +41,6 @@ type Handshake struct {
 	Authenticator                          [16]byte // 16 bytes
 	TempPublicKey                          [32]byte // 32 bytes
 	Data                                   []byte
-}
-
-func (h *Handshake) Len() int {
-	return len(h.Data)
 }
 
 func (h *Handshake) Marshal(peer *Peer) ([]byte, error) {
@@ -66,7 +63,101 @@ func (h *Handshake) Marshal(peer *Peer) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func parseHandshake(data []byte) (*Handshake, error) {
+// Logic to validate if an inbound handshake is correct based
+// on the existing state of the peer
+
+func (peer *Peer) validateHandshake(handshake *Handshake, state *State) error {
+
+	var err error
+
+	err = handshake.isDifferentPublicKeyToPeer(peer)
+	if err != nil {
+		return err
+	}
+
+	// The remote peer presents a hashed password for authentication, which we need
+	// to compare against our known passwords. Here we return an error if there's a problem
+	// with the supplied challenge (we can't find a matching password)
+
+	password, err := state.checkChallenge(handshake.Data[4:16])
+	if err != nil {
+		return err
+	}
+
+	peer.PasswordHash = password.hash
+	var NextNonce uint32
+
+	if handshake.Stage < 2 {
+		if isEmpty(&peer.PublicKey) || peer.NextNonce == 0 {
+			copy(peer.PublicKey[:], handshake.PublicKey[:])
+		}
+		peer.Secret = computeSharedSecretWithPasswordHash(state.KeyPair.PrivateKey, peer.PublicKey, peer.PasswordHash)
+		NextNonce = 2
+	} else {
+		if peer.Initiator == false {
+			return errAuthentication.setInfo("Unecessary additional key packet received")
+		}
+
+		peer.Secret = computeSharedSecretWithPasswordHash(peer.TempKeyPair.PrivateKey, peer.PublicKey, peer.PasswordHash)
+		NextNonce = 4
+	}
+
+	// Decrypting peer's temp public key
+
+	payload := handshake.Data[72:]
+	var herTempPublicKey [32]byte
+
+	decrypted, success := box.OpenAfterPrecomputation(handshake.Data[72:], payload, &handshake.Nonce, peer.Secret)
+	if success == false {
+		peer.Established = false
+		return errAuthentication.setInfo("Decryption of temporary public key failed")
+	}
+
+	copy(herTempPublicKey[:], decrypted[88:120])
+
+	// Post-decryption checks
+
+	err = handshake.isDuplicateHelloPacket(peer, herTempPublicKey)
+	if err != nil {
+		return err
+	}
+
+	err = handshake.isDuplicateKeyPacket(peer, herTempPublicKey)
+	if err != nil {
+		return err
+	}
+
+	err = handshake.isKeyPacketWithDifferentTemporaryPublicKey(peer, herTempPublicKey)
+	if err != nil {
+		return err
+	}
+
+	err = handshake.isRepeatKeyPacketDuringSetup(peer, NextNonce, herTempPublicKey, state)
+	if err != nil {
+		return err
+	}
+
+	if isEmpty(&peer.PublicKey) == true && isEmpty(handshake.PublicKey) == false {
+		copy(peer.PublicKey[:], handshake.PublicKey[:])
+	}
+
+	// TODO: handle data as part of handhsake
+	if len(handshake.Data) <= 160 {
+		if handshake.Challenge.Additional&(1<<15) != 0 {
+			return errNone
+		}
+	} else {
+		panic("got here")
+	}
+
+	// if NextNonce == 4 {
+
+	// }
+
+	return errUnknown
+}
+
+func (peer *Peer) parseHandshake(stage uint32, data []byte) (*Handshake, error) {
 
 	h := new(Handshake)
 	h.Challenge = new(Challenge)
@@ -88,6 +179,7 @@ func parseHandshake(data []byte) (*Handshake, error) {
 	binary.Read(r, binary.BigEndian, &h.PublicKey)
 	binary.Read(r, binary.BigEndian, &h.Authenticator)
 	binary.Read(r, binary.BigEndian, &h.TempPublicKey)
+
 	return h, nil
 }
 
@@ -107,7 +199,7 @@ func (peer *Peer) newHandshake(msg []byte, isSetup int, state *State) (*Handshak
 
 	h.PublicKey = state.KeyPair.PublicKey
 
-	if isEmpty(peer.PasswordHash) == false {
+	if isEmpty(&peer.PasswordHash) == false {
 		panic("encryptHandshake: got here")
 		h.Challenge.Type = 1
 	} else {
@@ -165,4 +257,25 @@ func computeSharedSecretWithPasswordHash(privateKey *[32]byte, herPublicKey [32]
 	secret := sha256.Sum256(buff)
 
 	return &secret
+}
+
+func (state *State) checkChallenge(challenge []byte) (*Passwd, error) {
+	if challenge[0] != 1 {
+		return nil, errAuthentication.setInfo("Invalid authentication type")
+	}
+
+	for _, v := range state.Passwords {
+		// a := make([]byte, 8)
+		b := make([]byte, 12)
+
+		// copy(a, challenge[:])
+		copy(b, v.hash[:12])
+
+		if bytes.Compare(challenge, b) == 0 {
+			log.Println("getAuth: found matching account")
+			return v, nil
+		}
+	}
+
+	return nil, errAuthentication.setInfo("No matching password found")
 }

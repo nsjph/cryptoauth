@@ -61,5 +61,5 @@ type KeyPair struct {
 type Passwd struct {
 	user     string
 	password string
-	hash     [32]string
+	hash     [32]byte
 }

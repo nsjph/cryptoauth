@@ -14,9 +14,19 @@
 
 package cryptoauth
 
-func isEmpty(x [32]byte) bool {
-	if x == [32]byte{} {
+import (
+	"log"
+)
+
+func isEmpty(x *[32]byte) bool {
+	if x == &[32]byte{} {
 		return true
 	}
 	return false
+}
+
+func checkFatal(err error) {
+	if err != nil {
+		log.Fatalf("Error: %s", err.Error())
+	}
 }
