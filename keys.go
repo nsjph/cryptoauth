@@ -16,7 +16,9 @@ package cryptoauth
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/sha512"
+	"encoding/hex"
 	"fmt"
 	"golang.org/x/crypto/nacl/box"
 	"net"
@@ -37,10 +39,34 @@ func keyToBase32(key [32]uint8) string {
 	return fmt.Sprintf("%s.k", base32Encode(key[:])[:52])
 }
 
+func DecodePublicKeyString(pubKeyString string) *[32]byte {
+
+	pubkey, err := base32Decode([]byte(pubKeyString[:52]))
+	checkFatal(err)
+
+	var publicKey [32]byte
+
+	copy(publicKey[:], pubkey)
+
+	return &publicKey
+}
+
+func DecodePrivateKeyString(privateKeyString string) *[32]byte {
+	var privateKey [32]byte
+	_, err := hex.Decode(privateKey[:], []byte(privateKeyString))
+	checkFatal(err)
+
+	return &privateKey
+}
+
 func hashPublicKey(publicKey *[32]byte) []byte {
 	firstHash := sha512.Sum512(publicKey[:])
 	secondHash := sha512.Sum512(firstHash[:])
 	return secondHash[0:16]
+}
+
+func HashPassword(password []byte) (passwordHash [32]byte) {
+	return sha256.Sum256(password)
 }
 
 func isValidIPv6Key(publicKey *[32]byte) bool {

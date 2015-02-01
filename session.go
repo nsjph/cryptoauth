@@ -59,7 +59,7 @@ type KeyPair struct {
 // Neet a type to hold passwords
 
 type Passwd struct {
-	user     string
-	password string
-	hash     [32]byte
+	User     string
+	Password string
+	Hash     [32]byte
 }

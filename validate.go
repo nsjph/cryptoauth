@@ -28,7 +28,7 @@ func isShortPacket(data []byte) error {
 // Check that the existing peer permanent public key matches the received
 // handshake's public key
 func (handshake *Handshake) isDifferentPublicKeyToPeer(peer *Peer) error {
-	if isEmpty(&peer.PublicKey) == false && &peer.PublicKey != handshake.PublicKey {
+	if isEmpty(peer.PublicKey) == false && peer.PublicKey != handshake.PublicKey {
 		return errAuthentication.setInfo("Received handshake with different public key than existing session")
 	}
 	return nil

@@ -20,6 +20,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"github.com/davecgh/go-spew/spew"
 	"golang.org/x/crypto/curve25519"
 	"golang.org/x/crypto/nacl/box"
 	"log"
@@ -36,7 +37,7 @@ type Handshake struct {
 	Stage                                  uint32
 	Challenge                              *Challenge // We use a generic container initially then decode it into appropriate struct later
 	Nonce                                  [24]byte   // 24 bytes
-	PublicKey                              *[32]byte
+	PublicKey                              [32]byte
 	AuthenticatorAndEncryptedTempPublicKey []byte
 	Authenticator                          [16]byte // 16 bytes
 	TempPublicKey                          [32]byte // 32 bytes
@@ -66,7 +67,7 @@ func (h *Handshake) Marshal(peer *Peer) ([]byte, error) {
 // Logic to validate if an inbound handshake is correct based
 // on the existing state of the peer
 
-func (peer *Peer) validateHandshake(handshake *Handshake, state *State) error {
+func (peer *Peer) validateHandshake(handshake *Handshake, state *State, origData []byte) error {
 
 	var err error
 
@@ -79,16 +80,22 @@ func (peer *Peer) validateHandshake(handshake *Handshake, state *State) error {
 	// to compare against our known passwords. Here we return an error if there's a problem
 	// with the supplied challenge (we can't find a matching password)
 
-	password, err := state.checkChallenge(handshake.Data[4:16])
+	log.Printf("stage is %d", handshake.Stage)
+
+	var challengeAsBytes [12]byte
+	copy(challengeAsBytes[:], handshake.Data[4:16])
+	password, err := state.checkChallenge(challengeAsBytes)
 	if err != nil {
 		return err
 	}
 
-	peer.PasswordHash = password.hash
+	peer.PasswordHash = password.Hash
 	var NextNonce uint32
 
+	log.Printf("public key from handshake: [%x]", handshake.PublicKey)
+
 	if handshake.Stage < 2 {
-		if isEmpty(&peer.PublicKey) || peer.NextNonce == 0 {
+		if isEmpty(peer.PublicKey) || peer.NextNonce == 0 {
 			copy(peer.PublicKey[:], handshake.PublicKey[:])
 		}
 		peer.Secret = computeSharedSecretWithPasswordHash(state.KeyPair.PrivateKey, peer.PublicKey, peer.PasswordHash)
@@ -137,7 +144,7 @@ func (peer *Peer) validateHandshake(handshake *Handshake, state *State) error {
 		return err
 	}
 
-	if isEmpty(&peer.PublicKey) == true && isEmpty(handshake.PublicKey) == false {
+	if isEmpty(peer.PublicKey) == true && isEmpty(handshake.PublicKey) == false {
 		copy(peer.PublicKey[:], handshake.PublicKey[:])
 	}
 
@@ -154,18 +161,24 @@ func (peer *Peer) validateHandshake(handshake *Handshake, state *State) error {
 
 	// }
 
+	return nil
+
 	return errUnknown
 }
 
 func (peer *Peer) parseHandshake(stage uint32, data []byte) (*Handshake, error) {
 
+	log.Println("parseHandshake: stage is %d", stage)
+
 	h := new(Handshake)
 	h.Challenge = new(Challenge)
+	h.Data = make([]byte, len(data))
 
 	// Store the raw data for quick manipulations later
-	copy(h.Data, data)
+	copy(h.Data[:], data)
 
-	if len(data) < 120 {
+	//
+	if len(data) < 120 && stage >= 4 {
 		return nil, fmt.Errorf("CryptoAuthHandshake header too short")
 	}
 
@@ -179,6 +192,8 @@ func (peer *Peer) parseHandshake(stage uint32, data []byte) (*Handshake, error) 
 	binary.Read(r, binary.BigEndian, &h.PublicKey)
 	binary.Read(r, binary.BigEndian, &h.Authenticator)
 	binary.Read(r, binary.BigEndian, &h.TempPublicKey)
+
+	spew.Dump(h)
 
 	return h, nil
 }
@@ -197,9 +212,9 @@ func (peer *Peer) newHandshake(msg []byte, isSetup int, state *State) (*Handshak
 	rand.Read(newNonce)
 	copy(h.Nonce[:], newNonce)
 
-	h.PublicKey = state.KeyPair.PublicKey
+	copy(h.PublicKey[:], state.KeyPair.PublicKey[:])
 
-	if isEmpty(&peer.PasswordHash) == false {
+	if isEmpty(peer.PasswordHash) == false && peer.Initiator == true {
 		panic("encryptHandshake: got here")
 		h.Challenge.Type = 1
 	} else {
@@ -236,11 +251,16 @@ func (peer *Peer) newHandshake(msg []byte, isSetup int, state *State) (*Handshak
 
 }
 
-func computeSharedSecret(privateKey *[32]byte, herPublicKey [32]byte) (secret *[32]byte) {
+func computeSharedSecret(privateKey *[32]byte, herPublicKey [32]byte) *[32]byte {
+
+	log.Printf("computing shared secret with:\n\tprivateKey: [%x]\n\therPublicKey: [%x]", privateKey, herPublicKey)
 
 	// TODO: check this, is this right way to check for empty [32]byte?
-	box.Precompute(secret, &herPublicKey, privateKey)
-	return secret
+
+	var secret [32]byte
+
+	box.Precompute(&secret, &herPublicKey, privateKey)
+	return &secret
 }
 
 func computeSharedSecretWithPasswordHash(privateKey *[32]byte, herPublicKey [32]byte, passwordHash [32]byte) *[32]byte {
@@ -259,19 +279,23 @@ func computeSharedSecretWithPasswordHash(privateKey *[32]byte, herPublicKey [32]
 	return &secret
 }
 
-func (state *State) checkChallenge(challenge []byte) (*Passwd, error) {
+func (state *State) checkChallenge(challenge [12]byte) (*Passwd, error) {
 	if challenge[0] != 1 {
 		return nil, errAuthentication.setInfo("Invalid authentication type")
 	}
 
 	for _, v := range state.Passwords {
-		// a := make([]byte, 8)
-		b := make([]byte, 12)
+		log.Printf("%x", v.Hash)
+		log.Printf("%x", challenge)
+		//a := make([]byte, 8)
+		var a []byte
+		var b []byte
+		//b := make([]byte, 12)
 
-		// copy(a, challenge[:])
-		copy(b, v.hash[:12])
+		copy(a, challenge[0:8])
+		copy(b, v.Hash[:])
 
-		if bytes.Compare(challenge, b) == 0 {
+		if bytes.Compare(a, b) == 0 {
 			log.Println("getAuth: found matching account")
 			return v, nil
 		}

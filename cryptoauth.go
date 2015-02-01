@@ -33,11 +33,11 @@ func (peer *Peer) connect(state *State) error {
 		return errExistingSession
 	}
 
-	if isEmpty(&peer.PublicKey) == true {
+	if isEmpty(peer.PublicKey) == true {
 		return errRequirePublicKey
 	}
 
-	if isEmpty(&peer.PasswordHash) == true {
+	if isEmpty(peer.PasswordHash) == true {
 		return errRequirePassword
 	}
 
@@ -60,7 +60,7 @@ func (peer *Peer) connect(state *State) error {
 
 }
 
-func (peer *Peer) parseMessage(msg []byte, state *State) ([]byte, error) {
+func (peer *Peer) ParseMessage(msg []byte, state *State) ([]byte, error) {
 
 	if len(msg) < 20 {
 		return nil, errUndersizeMessage
@@ -77,11 +77,25 @@ func (peer *Peer) parseMessage(msg []byte, state *State) ([]byte, error) {
 			// successfully parsed...
 			return d.Message, nil
 		}
+	} else if nonce > 3 && nonce != math.MaxUint32 {
+		log.Println("trying to complete handshake")
+		peer.Secret = computeSharedSecret(peer.TempKeyPair.PrivateKey, peer.TempPublicKey)
+		peer.NextNonce += 3
+
+		d, err := peer.parseDataPacket(nonce, msg)
+		if err != nil {
+			checkFatal(err)
+		} else {
+			peer.Established = true
+			log.Println("handshake completed")
+			return d.Message, nil
+		}
+
 	}
 
 	handshake, err := peer.parseHandshake(nonce, msg)
 	checkFatal(err)
-	err = peer.validateHandshake(handshake, state)
+	err = peer.validateHandshake(handshake, state, msg)
 	checkFatal(err)
 
 	switch peer.NextNonce {
@@ -90,17 +104,21 @@ func (peer *Peer) parseMessage(msg []byte, state *State) ([]byte, error) {
 	case 1:
 		panic("nextnonce is 1")
 	case 2:
+		log.Println("nextnonce is 2")
 		handshake, err := peer.newHandshake([]byte{}, 1, state)
 		checkFatal(err)
 		msg, err := handshake.Marshal(peer)
 		checkFatal(err)
 		return nil, peer.sendMessage(msg, state)
 	case 3:
+		log.Println("nextnonce is 3")
 		handshake, err := peer.newHandshake([]byte{}, 1, state)
 		checkFatal(err)
 		msg, err := handshake.Marshal(peer)
 		checkFatal(err)
 		return nil, peer.sendMessage(msg, state)
+	case 4:
+		log.Println("nextnonce is 4")
 	default:
 		log.Printf("what do I do with nonce [%d]", peer.NextNonce)
 		return nil, errUnknown
