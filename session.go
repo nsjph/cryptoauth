@@ -30,6 +30,7 @@ type State struct {
 type Peer struct {
 	Addr               *net.UDPAddr // remote address
 	Conn               *net.UDPConn // local connection
+	Name               string
 	NextNonce          uint32
 	Secret             *[32]byte
 	PublicKey          [32]byte
