@@ -5,34 +5,34 @@
 # Prepend our _vendor directory to the system GOPATH
 # so that import path resolution will prioritize
 # our third party snapshots.
+ORIGINAL_GOPATH := ${GOPATH}
+export ORIGINAL_GOPATH
 GOPATH := ${PWD}/_vendor:${GOPATH}
 export GOPATH
 
 default: vendor_get build install
 
 build: 
-	go build -v ./src/cryptoauth
+	GOPATH=${PWD}/_vendor go build -v 
 
+# Install package to original GOPATH
 install:
-	go install -v ./src/cryptoauth
+	go install -v 
 
 doc:
 	godoc -http=:6060 -index
 
 # http://golang.org/cmd/go/#hdr-Run_gofmt_on_package_sources
 fmt:
-	go fmt ./src/...
+	go fmt 
 
 # https://github.com/golang/lint
 # go get github.com/golang/lint/golint
 lint:
-	golint ./src
-
-run: build
-	./bin/main_app
+	golint 
 
 test:
-	go test ./src/...
+	go test 
 
 vendor_clean:
 	rm -dRf ./_vendor/src

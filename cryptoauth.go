@@ -68,8 +68,10 @@ func (peer *Peer) ParseMessage(msg []byte, state *State) ([]byte, error) {
 
 	nonce := binary.BigEndian.Uint32(msg[:4])
 
-	// Prioritize established sessions
-	if peer.Established == true && nonce != math.MaxUint32 {
+	// Prioritize established sessions and ensure the nonce matches expectations
+	// for established session. We may have an established session, but the
+	// peer may have reset it (hence the >=4 check)
+	if peer.Established == true && nonce >= 4 && nonce != math.MaxUint32 {
 		d, err := peer.parseDataPacket(nonce, msg[4:])
 		if err != nil {
 			return nil, err
