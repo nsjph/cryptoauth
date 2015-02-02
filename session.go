@@ -56,6 +56,12 @@ type KeyPair struct {
 	PrivateKey *[32]byte
 }
 
+type IdentityKeyPair struct {
+	PublicKey  *[32]byte
+	PrivateKey *[32]byte
+	IPv6       net.IP
+}
+
 // Neet a type to hold passwords
 
 type Passwd struct {

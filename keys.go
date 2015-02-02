@@ -24,12 +24,6 @@ import (
 	"net"
 )
 
-type CryptoAuthKeys struct {
-	PublicKey  *[32]byte
-	PrivateKey *[32]byte
-	IPv6       net.IP
-}
-
 func createTempKeyPair() (*KeyPair, error) {
 	publicKey, privateKey, err := box.GenerateKey(rand.Reader)
 	return &KeyPair{publicKey, privateKey}, err
@@ -52,6 +46,7 @@ func DecodePublicKeyString(pubKeyString string) *[32]byte {
 }
 
 func DecodePrivateKeyString(privateKeyString string) *[32]byte {
+	fmt.Printf("length of privateKeyString is %d", len(privateKeyString))
 	var privateKey [32]byte
 	_, err := hex.Decode(privateKey[:], []byte(privateKeyString))
 	checkFatal(err)
@@ -69,9 +64,10 @@ func HashPassword(password []byte) (passwordHash [32]byte) {
 	return sha256.Sum256(password)
 }
 
-func isValidIPv6Key(publicKey *[32]byte) bool {
+func isValidIPv6Key(k []byte) bool {
 
-	ip := net.IP.To16(publicKey[:])
+	//ip := hashPublicKey(k[:])
+	ip := net.IP.To16(k[:])
 
 	if ip[0] == 0xFC {
 		return true
@@ -86,19 +82,22 @@ func isValidIPv6Key(publicKey *[32]byte) bool {
 	// return false
 }
 
-func generateKeys() (*CryptoAuthKeys, error) {
+func NewIdentityKeys() (*IdentityKeyPair, error) {
 
 	publicKey, privateKey, err := box.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, err
 	}
 
-	for isValidIPv6Key(publicKey) != true {
+	ipv6 := hashPublicKey(publicKey)
+
+	for isValidIPv6Key(ipv6) != true {
 		publicKey, privateKey, err = box.GenerateKey(rand.Reader)
 		if err != nil {
 			return nil, err
 		}
+		ipv6 = hashPublicKey(publicKey)
 	}
 
-	return &CryptoAuthKeys{publicKey, privateKey, hashPublicKey(publicKey)}, nil
+	return &IdentityKeyPair{publicKey, privateKey, ipv6}, nil
 }
