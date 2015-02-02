@@ -48,8 +48,8 @@ func (h *Handshake) Marshal(peer *Peer) ([]byte, error) {
 
 	var out []byte
 
-	authenticatedAndEncryptedTempPubKey := box.SealAfterPrecomputation(out, peer.TempKeyPair.PublicKey[:], &h.Nonce, peer.Secret)
-	//encryptRandomNonce(h.Nonce, peer.TempKeyPair.PublicKey[:], peer.Secret)
+	authenticatedAndEncryptedTempPubKey := box.SealAfterPrecomputation(out, peer.LocalTempKeyPair.PublicKey[:], &h.Nonce, peer.Secret)
+	//encryptRandomNonce(h.Nonce, peer.LocalTempKeyPair.PublicKey[:], peer.Secret)
 
 	buf := new(bytes.Buffer)
 	binary.Write(buf, binary.BigEndian, h.Stage)
@@ -67,7 +67,7 @@ func (h *Handshake) Marshal(peer *Peer) ([]byte, error) {
 // Logic to validate if an inbound handshake is correct based
 // on the existing state of the peer
 
-func (peer *Peer) validateHandshake(handshake *Handshake, state *State, origData []byte) error {
+func (peer *Peer) validateHandshake(handshake *Handshake, origData []byte) error {
 
 	var err error
 
@@ -84,7 +84,7 @@ func (peer *Peer) validateHandshake(handshake *Handshake, state *State, origData
 
 	var challengeAsBytes [12]byte
 	copy(challengeAsBytes[:], handshake.Data[4:16])
-	password, err := state.checkChallenge(challengeAsBytes)
+	password, err := peer.checkChallenge(challengeAsBytes)
 	if err != nil {
 		return err
 	}
@@ -98,14 +98,14 @@ func (peer *Peer) validateHandshake(handshake *Handshake, state *State, origData
 		if isEmpty(peer.PublicKey) || peer.NextNonce == 0 {
 			copy(peer.PublicKey[:], handshake.PublicKey[:])
 		}
-		peer.Secret = computeSharedSecretWithPasswordHash(state.KeyPair.PrivateKey, peer.PublicKey, peer.PasswordHash)
+		peer.Secret = computeSharedSecretWithPasswordHash(peer.Local.KeyPair.PrivateKey, peer.PublicKey, peer.PasswordHash)
 		NextNonce = 2
 	} else {
 		if peer.Initiator == false {
 			return errAuthentication.setInfo("Unecessary additional key packet received")
 		}
 
-		peer.Secret = computeSharedSecretWithPasswordHash(peer.TempKeyPair.PrivateKey, peer.PublicKey, peer.PasswordHash)
+		peer.Secret = computeSharedSecretWithPasswordHash(peer.Local.KeyPair.PrivateKey, peer.PublicKey, peer.PasswordHash)
 		NextNonce = 4
 	}
 
@@ -139,7 +139,7 @@ func (peer *Peer) validateHandshake(handshake *Handshake, state *State, origData
 		return err
 	}
 
-	err = handshake.isRepeatKeyPacketDuringSetup(peer, NextNonce, herTempPublicKey, state)
+	err = handshake.isRepeatKeyPacketDuringSetup(peer, NextNonce, herTempPublicKey)
 	if err != nil {
 		return err
 	}
@@ -198,7 +198,7 @@ func (peer *Peer) parseHandshake(stage uint32, data []byte) (*Handshake, error) 
 	return h, nil
 }
 
-func (peer *Peer) newHandshake(msg []byte, isSetup int, state *State) (*Handshake, error) {
+func (peer *Peer) newHandshake(msg []byte, isSetup int) (*Handshake, error) {
 
 	var err error
 
@@ -212,7 +212,7 @@ func (peer *Peer) newHandshake(msg []byte, isSetup int, state *State) (*Handshak
 	rand.Read(newNonce)
 	copy(h.Nonce[:], newNonce)
 
-	copy(h.PublicKey[:], state.KeyPair.PublicKey[:])
+	copy(h.PublicKey[:], peer.Local.KeyPair.PublicKey[:])
 
 	if isEmpty(peer.PasswordHash) == false && peer.Initiator == true {
 		panic("encryptHandshake: got here")
@@ -225,8 +225,8 @@ func (peer *Peer) newHandshake(msg []byte, isSetup int, state *State) (*Handshak
 	h.Challenge.Additional &= ^uint16(1 << 15)
 
 	if peer.NextNonce == 0 || peer.NextNonce == 2 {
-		if peer.TempKeyPair == nil {
-			peer.TempKeyPair, err = createTempKeyPair()
+		if peer.LocalTempKeyPair == nil {
+			peer.LocalTempKeyPair, err = createTempKeyPair()
 			if err != nil {
 				return nil, err
 			}
@@ -234,17 +234,17 @@ func (peer *Peer) newHandshake(msg []byte, isSetup int, state *State) (*Handshak
 	}
 
 	if peer.NextNonce < 2 {
-		peer.Secret = computeSharedSecretWithPasswordHash(state.KeyPair.PrivateKey, peer.PublicKey, peer.PasswordHash)
+		peer.Secret = computeSharedSecretWithPasswordHash(peer.Local.KeyPair.PrivateKey, peer.PublicKey, peer.PasswordHash)
 		peer.Initiator = true
 		peer.NextNonce = 1
 	} else {
-		peer.Secret = computeSharedSecret(state.KeyPair.PrivateKey, peer.TempPublicKey)
+		peer.Secret = computeSharedSecret(peer.Local.KeyPair.PrivateKey, peer.TempPublicKey)
 		peer.NextNonce = 3
 	}
 
 	// Key Packet
 	if peer.NextNonce == 2 {
-		peer.Secret = computeSharedSecretWithPasswordHash(state.KeyPair.PrivateKey, peer.TempPublicKey, peer.PasswordHash)
+		peer.Secret = computeSharedSecretWithPasswordHash(peer.Local.KeyPair.PrivateKey, peer.TempPublicKey, peer.PasswordHash)
 	}
 
 	return h, nil
@@ -279,12 +279,12 @@ func computeSharedSecretWithPasswordHash(privateKey *[32]byte, herPublicKey [32]
 	return &secret
 }
 
-func (state *State) checkChallenge(challenge [12]byte) (*Passwd, error) {
+func (peer *Peer) checkChallenge(challenge [12]byte) (*Passwd, error) {
 	if challenge[0] != 1 {
 		return nil, errAuthentication.setInfo("Invalid authentication type")
 	}
 
-	for _, v := range state.Passwords {
+	for _, v := range peer.Local.Passwords {
 		log.Printf("%x", v.Hash)
 		log.Printf("%x", challenge)
 		//a := make([]byte, 8)

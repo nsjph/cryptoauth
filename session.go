@@ -16,32 +16,54 @@ package cryptoauth
 
 import (
 	"net"
+	"sync"
 )
 
 // Need a type to hold local state
 
-type State struct {
-	KeyPair   *KeyPair
-	Passwords map[[32]byte]*Passwd
+type Server struct {
+	KeyPair     *KeyPair
+	IPv6        net.IP
+	Listen      string
+	Conn        *net.UDPConn
+	Passwords   map[[32]byte]*Passwd
+	Connections map[string]*Peer
+}
+
+type Peer struct {
+	sync.RWMutex
+	Name               string
+	Addr               *net.UDPAddr
+	PublicKey          [32]byte // peer's permanent public key
+	TempPublicKey      [32]byte // peer's temporary public key
+	LocalTempKeyPair   *KeyPair // local temporary keys
+	Local              *Server
+	NextNonce          uint32
+	Secret             *[32]byte // shared secret
+	PasswordHash       [32]byte  // static password hash for use in authentication
+	AuthRequired       bool
+	Established        bool
+	Initiator          bool
+	LastPacketReceived uint32
 }
 
 // Need a type to hold peer-side state
 
-type Peer struct {
-	Addr               *net.UDPAddr // remote address
-	Conn               *net.UDPConn // local connection
-	Name               string
-	NextNonce          uint32
-	Secret             *[32]byte
-	PublicKey          [32]byte
-	TempKeyPair        *KeyPair // Our Temporary Keypair
-	TempPublicKey      [32]byte // peer temporary public key
-	PasswordHash       [32]byte // hashed version of password
-	Initiator          bool
-	Established        bool
-	AuthRequired       bool
-	LastPacketReceived uint32
-}
+// type Peer struct {
+// 	Addr               *net.UDPAddr // remote address
+// 	Conn               *net.UDPConn // local connection
+// 	Name               string
+// 	NextNonce          uint32
+// 	Secret             *[32]byte
+// 	PublicKey          [32]byte
+// 	TempKeyPair        *KeyPair // Our Temporary Keypair
+// 	TempPublicKey      [32]byte // peer temporary public key
+// 	PasswordHash       [32]byte // hashed version of password
+// 	Initiator          bool
+// 	Established        bool
+// 	AuthRequired       bool
+// 	LastPacketReceived uint32
+// }
 
 type ReplayProtection struct {
 	bits              uint64

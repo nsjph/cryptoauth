@@ -27,7 +27,7 @@ var (
 	errRequirePassword  = errors.New("Require password to connect to peer")
 )
 
-func (peer *Peer) connect(state *State) error {
+func (peer *Peer) connect() error {
 
 	if peer.Established == true {
 		return errExistingSession
@@ -41,7 +41,7 @@ func (peer *Peer) connect(state *State) error {
 		return errRequirePassword
 	}
 
-	handshake, err := peer.newHandshake([]byte{}, 1, state)
+	handshake, err := peer.newHandshake([]byte{}, 1)
 	if err != nil {
 		return err
 	}
@@ -51,7 +51,7 @@ func (peer *Peer) connect(state *State) error {
 		return err
 	}
 
-	err = peer.sendMessage(msg, state)
+	err = peer.sendMessage(msg)
 	if err != nil {
 		return err
 	}
@@ -60,7 +60,7 @@ func (peer *Peer) connect(state *State) error {
 
 }
 
-func (peer *Peer) ParseMessage(msg []byte, state *State) ([]byte, error) {
+func (peer *Peer) ParseMessage(msg []byte) ([]byte, error) {
 
 	if len(msg) < 20 {
 		return nil, errUndersizeMessage
@@ -81,7 +81,7 @@ func (peer *Peer) ParseMessage(msg []byte, state *State) ([]byte, error) {
 		}
 	} else if nonce > 3 && nonce != math.MaxUint32 {
 		log.Println("trying to complete handshake")
-		peer.Secret = computeSharedSecret(peer.TempKeyPair.PrivateKey, peer.TempPublicKey)
+		peer.Secret = computeSharedSecret(peer.LocalTempKeyPair.PrivateKey, peer.TempPublicKey)
 		peer.NextNonce += 3
 
 		d, err := peer.parseDataPacket(nonce, msg)
@@ -97,7 +97,7 @@ func (peer *Peer) ParseMessage(msg []byte, state *State) ([]byte, error) {
 
 	handshake, err := peer.parseHandshake(nonce, msg)
 	checkFatal(err)
-	err = peer.validateHandshake(handshake, state, msg)
+	err = peer.validateHandshake(handshake, msg)
 	checkFatal(err)
 
 	switch peer.NextNonce {
@@ -107,18 +107,18 @@ func (peer *Peer) ParseMessage(msg []byte, state *State) ([]byte, error) {
 		panic("nextnonce is 1")
 	case 2:
 		log.Println("nextnonce is 2")
-		handshake, err := peer.newHandshake([]byte{}, 1, state)
+		handshake, err := peer.newHandshake([]byte{}, 1)
 		checkFatal(err)
 		msg, err := handshake.Marshal(peer)
 		checkFatal(err)
-		return nil, peer.sendMessage(msg, state)
+		return nil, peer.sendMessage(msg)
 	case 3:
 		log.Println("nextnonce is 3")
-		handshake, err := peer.newHandshake([]byte{}, 1, state)
+		handshake, err := peer.newHandshake([]byte{}, 1)
 		checkFatal(err)
 		msg, err := handshake.Marshal(peer)
 		checkFatal(err)
-		return nil, peer.sendMessage(msg, state)
+		return nil, peer.sendMessage(msg)
 	case 4:
 		log.Println("nextnonce is 4")
 	default:
@@ -129,18 +129,18 @@ func (peer *Peer) ParseMessage(msg []byte, state *State) ([]byte, error) {
 	return nil, nil
 }
 
-func (peer *Peer) sendMessage(msg []byte, state *State) error {
+func (peer *Peer) sendMessage(msg []byte) error {
 	if peer.NextNonce >= 0xfffffff0 {
 		panic("write nonce resetting code")
 	}
-	_, err := peer.Conn.WriteToUDP(msg, peer.Addr)
+	_, err := peer.Local.Conn.WriteToUDP(msg, peer.Addr)
 	return err
 }
 
 func (peer *Peer) resetSession() {
 	peer.NextNonce = 0
 	peer.Initiator = false
-	peer.TempKeyPair = &KeyPair{}
+	peer.LocalTempKeyPair = &KeyPair{}
 
 	//peer.tempKeyPair.privateKey = [32]byte{}
 

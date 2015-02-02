@@ -64,14 +64,14 @@ func (handshake *Handshake) isKeyPacketWithDifferentTemporaryPublicKey(peer *Pee
 	return nil
 }
 
-func (handshake *Handshake) isRepeatKeyPacketDuringSetup(peer *Peer, nextNonce uint32, herTempPublicKey [32]byte, state *State) error {
+func (handshake *Handshake) isRepeatKeyPacketDuringSetup(peer *Peer, nextNonce uint32, herTempPublicKey [32]byte) error {
 	if nextNonce == 4 {
 		if peer.NextNonce <= 4 {
 			peer.NextNonce = nextNonce
 			peer.TempPublicKey = herTempPublicKey
 			return nil
 		} else {
-			peer.Secret = computeSharedSecret(peer.TempKeyPair.PrivateKey, peer.TempPublicKey)
+			peer.Secret = computeSharedSecret(peer.LocalTempKeyPair.PrivateKey, peer.TempPublicKey)
 		}
 	} else if nextNonce != 2 {
 		panic("shouldn't reach here")
@@ -87,7 +87,7 @@ func (handshake *Handshake) isRepeatKeyPacketDuringSetup(peer *Peer, nextNonce u
 		peer.NextNonce = nextNonce
 		peer.TempPublicKey = herTempPublicKey
 
-	} else if bytes.Compare([]byte(peer.PublicKey[:]), []byte(state.KeyPair.PublicKey[:])) < 0 {
+	} else if bytes.Compare([]byte(peer.PublicKey[:]), []byte(peer.Local.KeyPair.PublicKey[:])) < 0 {
 		peer.resetSession()
 		peer.NextNonce = nextNonce
 		peer.TempPublicKey = herTempPublicKey

@@ -3,7 +3,7 @@
 *.a
 *.so
 
-server
+examples/server/server
 
 # Folders
 _obj

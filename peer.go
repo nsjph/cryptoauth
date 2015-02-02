@@ -15,16 +15,24 @@
 package cryptoauth
 
 import (
-	_ "log"
-	"testing"
+	"net"
 )
 
-func BenchmarkNewIdentityKeys(b *testing.B) {
-	NewIdentityKeys()
-	// identityKeyPair, err := NewIdentityKeys()
-	// if err != nil {
-	// 	log.Printf("Error generating new identity keys: %s", err.Error())
-	// } else {
-	// 	log.Printf("ip = %s", identityKeyPair.IPv6)
-	// }
+func NewPeer(name string, addr *net.UDPAddr, localServer *Server, initiator bool, password []byte, publicKey [32]byte) *Peer {
+
+	var passwordHash [32]byte
+
+	if password != nil {
+		hash := HashPassword(password)
+		copy(passwordHash[:], hash[:])
+	}
+
+	return &Peer{
+		Name:         name,
+		Addr:         addr,
+		Local:        localServer,
+		Initiator:    initiator,
+		PasswordHash: passwordHash,
+		PublicKey:    publicKey,
+	}
 }
