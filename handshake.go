@@ -67,6 +67,9 @@ func (h *Handshake) Marshal(peer *Peer) ([]byte, error) {
 // Logic to validate if an inbound handshake is correct based
 // on the existing state of the peer
 
+// TODO: Some of this should be split into pre-handshake creation and post-handshake creation
+// Validate is also a misnomer, since validation happens here and in validate.go... :\
+
 func (peer *Peer) validateHandshake(handshake *Handshake, origData []byte) error {
 
 	var err error
@@ -157,13 +160,7 @@ func (peer *Peer) validateHandshake(handshake *Handshake, origData []byte) error
 		panic("got here")
 	}
 
-	// if NextNonce == 4 {
-
-	// }
-
 	return nil
-
-	return errUnknown
 }
 
 func (peer *Peer) parseHandshake(stage uint32, data []byte) (*Handshake, error) {
@@ -223,6 +220,9 @@ func (peer *Peer) newHandshake(msg []byte, isSetup int) (*Handshake, error) {
 
 	h.Challenge.RequirePacketAuthAndDerivationCount |= (1 << 15)
 	h.Challenge.Additional &= ^uint16(1 << 15)
+
+	// TODO: The following code has nothing to do with a handshake, just updating
+	// the state of the Peer. This code should probably be moved somewhere else
 
 	if peer.NextNonce == 0 || peer.NextNonce == 2 {
 		if peer.LocalTempKeyPair == nil {
