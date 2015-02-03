@@ -60,6 +60,34 @@ func (peer *Peer) connect() error {
 
 }
 
+func (c *Connection) HandlePacket(p []byte) error {
+
+	// Check minimum length
+
+	if len(p) < 20 {
+		return errUndersizeMessage
+	}
+
+	nonce := binary.BigEndian.Uint32(p[:4])
+
+	// Establish session
+	if c.isEstablished == false {
+
+	} else {
+		if nonce >= 4 && nonce != math.MaxUint32 {
+			err := c.handleDataPacket(nonce, p)
+			if err != nil {
+				log.Printf("Error parsing data packet: %s", err.Error())
+				return errInvalid
+			}
+			return nil
+		}
+	}
+
+	return nil
+
+}
+
 func (peer *Peer) ParseMessage(msg []byte) ([]byte, error) {
 
 	if len(msg) < 20 {

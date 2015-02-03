@@ -26,8 +26,12 @@ type Server struct {
 	IPv6        net.IP
 	Listen      string
 	Conn        *net.UDPConn
+	Keys        *CryptoState
+	Incoming    chan []byte
+	Outgoing    chan []byte
 	Passwords   map[[32]byte]*Passwd
 	Connections map[string]*Peer
+	Sessions    map[string]*Connection
 }
 
 type Peer struct {

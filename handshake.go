@@ -44,6 +44,18 @@ type Handshake struct {
 	Data                                   []byte
 }
 
+func (c *Connection) handleHandshakePacket(nonce uint32, p []byte) error {
+
+	if c.remote.host.PublicKey == nil {
+		copy(c.remote.host.PublicKey[:], p[40:72])
+		if !isValidIPv6PublicKey(c.remote.host.PublicKey) {
+			return errAuthentication.setInfo("Remote Host Public Key is not valid for IPv6")
+		}
+	}
+
+	return nil
+}
+
 func (h *Handshake) Marshal(peer *Peer) ([]byte, error) {
 
 	var out []byte

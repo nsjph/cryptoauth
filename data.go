@@ -24,6 +24,45 @@ type DataPacket struct {
 	Message []byte
 }
 
+func (c *Connection) convertNonce(nonce uint32) [24]byte {
+
+	n := make([]byte, 8)
+	convertedNonce := [24]byte{}
+
+	switch c.isInitiator {
+	case true:
+		binary.LittleEndian.PutUint32(n[:4], nonce)
+	case false:
+		binary.LittleEndian.PutUint32(n[4:], nonce)
+	}
+
+	copy(convertedNonce[:], n)
+
+	return convertedNonce
+
+}
+
+func (c *Connection) handleDataPacket(nonce uint32, p []byte) error {
+
+	convertedNonce := c.convertNonce(nonce)
+
+	_, success := box.OpenAfterPrecomputation(p, p[4:], &convertedNonce, &c.secret)
+	if success == false {
+		return errAuthentication.setInfo("Decryption failed")
+	}
+
+	// d := &DataPacket{
+	// 	Nonce:   nonce,
+	// 	Message: decrypted,
+	// }
+
+	// TODO: is this the right spot?
+	c.nextNonce++
+
+	return nil
+
+}
+
 func (d *DataPacket) Marshal(peer *Peer) ([]byte, error) {
 
 	// Initialise the []byte buffer and in-place convert nonce to bigendian.

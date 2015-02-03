@@ -64,6 +64,16 @@ func HashPassword(password []byte) (passwordHash [32]byte) {
 	return sha256.Sum256(password)
 }
 
+func isValidIPv6PublicKey(k *[32]byte) bool {
+	h := hashPublicKey(k)
+	ip := net.IP.To16(h[:])
+
+	if ip[0] == 0xFC {
+		return true
+	}
+	return false
+}
+
 func isValidIPv6Key(k []byte) bool {
 
 	//ip := hashPublicKey(k[:])
