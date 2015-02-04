@@ -18,7 +18,7 @@ var b2i = func() []byte {
 	return ascii[:]
 }()
 
-func base32Encode(in []byte) (out []byte) {
+func Base32Encode(in []byte) (out []byte) {
 	var wide, bits uint
 	for len(in) > 0 {
 		// Add the 8 bits of data from the next `in` byte above the existing bits
@@ -36,7 +36,7 @@ func base32Encode(in []byte) (out []byte) {
 	return out
 }
 
-func base32Decode(in []byte) (out []byte, err error) {
+func Base32Decode(in []byte) (out []byte, err error) {
 	var wide, bits uint
 	for len(in) > 0 && in[0] != '=' {
 		// Add the 5 bits of data corresponding to the next `in` character above existing bits
