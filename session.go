@@ -30,6 +30,7 @@ type Server struct {
 	Incoming    chan []byte
 	Outgoing    chan []byte
 	Passwords   map[[32]byte]*Passwd
+	Password    string // for testing just one password at a time
 	Connections map[string]*Peer
 	Sessions    map[string]*Connection
 }
@@ -75,11 +76,6 @@ type ReplayProtection struct {
 	dupes             uint32
 	packetsLost       uint32
 	packetsOutOfRange uint32
-}
-
-type KeyPair struct {
-	PublicKey  *[32]byte
-	PrivateKey *[32]byte
 }
 
 type IdentityKeyPair struct {

@@ -16,14 +16,22 @@ package cryptoauth
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"io"
 	"net"
 )
 
+type KeyPair struct {
+	PublicKey  [32]byte
+	PrivateKey [32]byte
+}
+
 type CryptoState struct {
-	host     *KeyPair
-	temp     *KeyPair
-	password string
+	perm        *KeyPair
+	temp        *KeyPair
+	password    string
+	isInitiator bool
+	nextNonce   uint32
 }
 
 // Each session is represented by a connection
@@ -31,7 +39,6 @@ type Connection struct {
 	conn               *net.UDPConn
 	laddr              net.Addr
 	raddr              *net.UDPAddr
-	isInitiator        bool
 	isEstablished      bool
 	lastPacketReceived uint32
 	local              *CryptoState
@@ -40,10 +47,11 @@ type Connection struct {
 	outgoing           chan []byte // data destined for remote
 	rand               io.Reader
 	secret             [32]byte
-	nextNonce          uint32
+	password           string
+	passwordHash       [32]byte
 }
 
-func NewConnection(conn *net.UDPConn, laddr net.Addr, raddr *net.UDPAddr, isInitiator bool, local, remote *CryptoState) *Connection {
+func NewConnection(conn *net.UDPConn, raddr *net.UDPAddr, local, remote *CryptoState) *Connection {
 
 	// TODO: local should not be nil
 
@@ -53,11 +61,19 @@ func NewConnection(conn *net.UDPConn, laddr net.Addr, raddr *net.UDPAddr, isInit
 
 	// TODO: isEstablished should default to false
 
-	return &Connection{
+	if remote == nil {
+		kp := new(KeyPair)
+		remote = NewCryptoState(kp, false)
+	}
+
+	if local == nil {
+		return nil
+	}
+
+	c := &Connection{
 		conn:          conn,
-		laddr:         laddr,
+		laddr:         conn.LocalAddr(),
 		raddr:         raddr,
-		isInitiator:   isInitiator,
 		isEstablished: false,
 		local:         local,
 		remote:        remote,
@@ -65,16 +81,29 @@ func NewConnection(conn *net.UDPConn, laddr net.Addr, raddr *net.UDPAddr, isInit
 		outgoing:      make(chan []byte, 16),
 		rand:          rand.Reader,
 	}
+	return c
 }
 
-func NewCryptoState(kp *KeyPair) *CryptoState {
-	return &CryptoState{
-		host: kp,
+func NewCryptoState(kp *KeyPair, initiator bool) *CryptoState {
+	cs := &CryptoState{
+		perm:        kp,
+		temp:        nil,
+		nextNonce:   0,
+		isInitiator: initiator,
 	}
+
+	return cs
+
+	// // If we have a permanent private key set, we're the server
+	// if isEmpty(cs.perm.PrivateKey) == false {
+	// 	cs.isInitiator == true
+	// }
 }
 
-func (c *CryptoState) SetPassword(password string) {
+func (c *Connection) SetPassword(password string) {
 	c.password = password
+	pwhash := sha256.Sum256([]byte(c.password))
+	copy(c.passwordHash[:], pwhash[:32])
 }
 
 func (c *CryptoState) NewTempKeys() (err error) {

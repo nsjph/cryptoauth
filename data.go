@@ -15,119 +15,126 @@
 package cryptoauth
 
 import (
-	"encoding/binary"
-	"golang.org/x/crypto/nacl/box"
+	_ "encoding/binary"
+	_ "golang.org/x/crypto/nacl/box"
 )
 
-type DataPacket struct {
-	Nonce   uint32
-	Message []byte
+func (c *Connection) HandleDataPacket(nonce uint32, p []byte) ([]byte, error) {
+
+	panic("fixme")
+
+	return nil, nil
 }
 
-func (c *Connection) convertNonce(nonce uint32) [24]byte {
+// type DataPacket struct {
+// 	Nonce   uint32
+// 	Message []byte
+// }
 
-	n := make([]byte, 8)
-	convertedNonce := [24]byte{}
+// func (c *Connection) convertNonce(nonce uint32) [24]byte {
 
-	switch c.isInitiator {
-	case true:
-		binary.LittleEndian.PutUint32(n[:4], nonce)
-	case false:
-		binary.LittleEndian.PutUint32(n[4:], nonce)
-	}
+// 	n := make([]byte, 8)
+// 	convertedNonce := [24]byte{}
 
-	copy(convertedNonce[:], n)
+// 	switch c.isInitiator {
+// 	case true:
+// 		binary.LittleEndian.PutUint32(n[:4], nonce)
+// 	case false:
+// 		binary.LittleEndian.PutUint32(n[4:], nonce)
+// 	}
 
-	return convertedNonce
+// 	copy(convertedNonce[:], n)
 
-}
+// 	return convertedNonce
 
-func (c *Connection) handleDataPacket(nonce uint32, p []byte) error {
+// }
 
-	convertedNonce := c.convertNonce(nonce)
+// func (c *Connection) handleDataPacket(nonce uint32, p []byte) error {
 
-	_, success := box.OpenAfterPrecomputation(p, p[4:], &convertedNonce, &c.secret)
-	if success == false {
-		return errAuthentication.setInfo("Decryption failed")
-	}
+// 	convertedNonce := c.convertNonce(nonce)
 
-	// d := &DataPacket{
-	// 	Nonce:   nonce,
-	// 	Message: decrypted,
-	// }
+// 	_, success := box.OpenAfterPrecomputation(p, p[4:], &convertedNonce, &c.secret)
+// 	if success == false {
+// 		return errAuthentication.setInfo("Decryption failed")
+// 	}
 
-	// TODO: is this the right spot?
-	c.nextNonce++
+// 	// d := &DataPacket{
+// 	// 	Nonce:   nonce,
+// 	// 	Message: decrypted,
+// 	// }
 
-	return nil
+// 	// TODO: is this the right spot?
+// 	c.nextNonce++
 
-}
+// 	return nil
 
-func (d *DataPacket) Marshal(peer *Peer) ([]byte, error) {
+// }
 
-	// Initialise the []byte buffer and in-place convert nonce to bigendian.
-	// See encoding/binary/putuint32 for explanation: https://golang.org/src/encoding/binary/binary.go
-	b := make([]byte, len(d.Message)+4)
-	//b := []byte{byte(d.Nonce >> 24), byte(d.Nonce >> 16), byte(d.Nonce >> 8), byte(d.Nonce)}
-	b[0] = byte(d.Nonce >> 24)
-	b[1] = byte(d.Nonce >> 16)
-	b[2] = byte(d.Nonce >> 8)
-	b[3] = byte(d.Nonce)
+// func (d *DataPacket) Marshal(peer *Peer) ([]byte, error) {
 
-	copy(b[4:], d.Message)
+// 	// Initialise the []byte buffer and in-place convert nonce to bigendian.
+// 	// See encoding/binary/putuint32 for explanation: https://golang.org/src/encoding/binary/binary.go
+// 	b := make([]byte, len(d.Message)+4)
+// 	//b := []byte{byte(d.Nonce >> 24), byte(d.Nonce >> 16), byte(d.Nonce >> 8), byte(d.Nonce)}
+// 	b[0] = byte(d.Nonce >> 24)
+// 	b[1] = byte(d.Nonce >> 16)
+// 	b[2] = byte(d.Nonce >> 8)
+// 	b[3] = byte(d.Nonce)
 
-	return b, nil
+// 	copy(b[4:], d.Message)
 
-}
+// 	return b, nil
 
-func (peer *Peer) parseDataPacket(nonce uint32, data []byte) (*DataPacket, error) {
+// }
 
-	n := make([]byte, 8)
-	convertedNonce := [24]byte{}
+// func (peer *Peer) parseDataPacket(nonce uint32, data []byte) (*DataPacket, error) {
 
-	switch peer.Initiator {
-	case true:
-		binary.LittleEndian.PutUint32(n[:4], nonce)
-	case false:
-		binary.LittleEndian.PutUint32(n[4:], nonce)
-	}
+// 	n := make([]byte, 8)
+// 	convertedNonce := [24]byte{}
 
-	copy(convertedNonce[:], n)
+// 	switch peer.Initiator {
+// 	case true:
+// 		binary.LittleEndian.PutUint32(n[:4], nonce)
+// 	case false:
+// 		binary.LittleEndian.PutUint32(n[4:], nonce)
+// 	}
 
-	decrypted, success := box.OpenAfterPrecomputation(data, data[4:], &convertedNonce, peer.Secret)
-	if success == false {
-		return nil, errAuthentication.setInfo("Decryption failed")
-	}
+// 	copy(convertedNonce[:], n)
 
-	d := &DataPacket{
-		Nonce:   binary.BigEndian.Uint32(data[:4]),
-		Message: decrypted,
-	}
+// 	decrypted, success := box.OpenAfterPrecomputation(data, data[4:], &convertedNonce, peer.Secret)
+// 	if success == false {
+// 		return nil, errAuthentication.setInfo("Decryption failed")
+// 	}
 
-	return d, nil
-}
+// 	d := &DataPacket{
+// 		Nonce:   binary.BigEndian.Uint32(data[:4]),
+// 		Message: decrypted,
+// 	}
 
-func (peer *Peer) newDataPacket(msg []byte) (*DataPacket, error) {
+// 	return d, nil
+// }
 
-	n := make([]byte, 8)
-	var convertedNonce [24]byte
+// func (peer *Peer) newDataPacket(msg []byte) (*DataPacket, error) {
 
-	if peer.Initiator == true {
-		binary.LittleEndian.PutUint32(n[4:], peer.NextNonce)
-	} else {
-		binary.LittleEndian.PutUint32(n[:4], peer.NextNonce)
-	}
+// 	n := make([]byte, 8)
+// 	var convertedNonce [24]byte
 
-	peer.NextNonce++
+// 	if peer.Initiator == true {
+// 		binary.LittleEndian.PutUint32(n[4:], peer.NextNonce)
+// 	} else {
+// 		binary.LittleEndian.PutUint32(n[:4], peer.NextNonce)
+// 	}
 
-	copy(convertedNonce[:], n)
+// 	peer.NextNonce++
 
-	var out []byte
-	encrypted := box.SealAfterPrecomputation(out, msg, &convertedNonce, peer.Secret)
-	// if err != nil {
-	// 	return nil, errAuthentication.setInfo("Encryption failed")
-	// }
+// 	copy(convertedNonce[:], n)
 
-	return &DataPacket{peer.NextNonce, encrypted}, nil
+// 	var out []byte
+// 	encrypted := box.SealAfterPrecomputation(out, msg, &convertedNonce, peer.Secret)
+// 	// if err != nil {
+// 	// 	return nil, errAuthentication.setInfo("Encryption failed")
+// 	// }
 
-}
+// 	return &DataPacket{peer.NextNonce, encrypted}, nil
+
+// }

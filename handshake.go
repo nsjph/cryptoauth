@@ -17,301 +17,344 @@ package cryptoauth
 import (
 	"bytes"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/binary"
-	"fmt"
+	_ "fmt"
 	"github.com/davecgh/go-spew/spew"
-	"golang.org/x/crypto/curve25519"
 	"golang.org/x/crypto/nacl/box"
+	"io"
 	"log"
 )
 
-type Challenge struct {
-	Type                                uint8
-	Lookup                              [7]byte
-	RequirePacketAuthAndDerivationCount uint16
-	Additional                          uint16
-}
-
 type Handshake struct {
-	Stage                                  uint32
-	Challenge                              *Challenge // We use a generic container initially then decode it into appropriate struct later
-	Nonce                                  [24]byte   // 24 bytes
-	PublicKey                              [32]byte
-	AuthenticatorAndEncryptedTempPublicKey []byte
-	Authenticator                          [16]byte // 16 bytes
-	TempPublicKey                          [32]byte // 32 bytes
-	Data                                   []byte
+	Stage               uint32     // 4 bytes (4)
+	Challenge           *Challenge // 12 bytes (16)
+	Nonce               [24]byte   // 24 bytes (40)
+	PublicKey           [32]byte   // 32 bytes (72)
+	EncryptedTempPubKey []byte
+	Payload             []byte
 }
 
-func (c *Connection) handleHandshakePacket(nonce uint32, p []byte) error {
-
-	if c.remote.host.PublicKey == nil {
-		copy(c.remote.host.PublicKey[:], p[40:72])
-		if !isValidIPv6PublicKey(c.remote.host.PublicKey) {
-			return errAuthentication.setInfo("Remote Host Public Key is not valid for IPv6")
-		}
+func requiresTempKeyPair(stage uint32) bool {
+	switch stage {
+	case 0:
+		return true
+	case 2:
+		return true
+	default:
+		return false
 	}
 
-	return nil
+	if debugHandshake {
+		log.Print("requiresTempPublicKey (fell through): ", stage)
+	}
+	return false
 }
 
-func (h *Handshake) Marshal(peer *Peer) ([]byte, error) {
+func NewHandshake(stage uint32, challenge *Challenge, local *CryptoState, remote *CryptoState, passwordHash [32]byte) ([]byte, error) {
 
-	var out []byte
-
-	authenticatedAndEncryptedTempPubKey := box.SealAfterPrecomputation(out, peer.LocalTempKeyPair.PublicKey[:], &h.Nonce, peer.Secret)
-	//encryptRandomNonce(h.Nonce, peer.LocalTempKeyPair.PublicKey[:], peer.Secret)
-
-	buf := new(bytes.Buffer)
-	binary.Write(buf, binary.BigEndian, h.Stage)
-	binary.Write(buf, binary.BigEndian, h.Challenge.Type)
-	binary.Write(buf, binary.BigEndian, h.Challenge.Lookup)
-	binary.Write(buf, binary.BigEndian, h.Challenge.RequirePacketAuthAndDerivationCount)
-	binary.Write(buf, binary.BigEndian, h.Challenge.Additional)
-	binary.Write(buf, binary.BigEndian, h.Nonce)
-	binary.Write(buf, binary.BigEndian, h.PublicKey)
-	binary.Write(buf, binary.BigEndian, authenticatedAndEncryptedTempPubKey)
-
-	return buf.Bytes(), nil
-}
-
-// Logic to validate if an inbound handshake is correct based
-// on the existing state of the peer
-
-// TODO: Some of this should be split into pre-handshake creation and post-handshake creation
-// Validate is also a misnomer, since validation happens here and in validate.go... :\
-
-func (peer *Peer) validateHandshake(handshake *Handshake, origData []byte) error {
-
-	var err error
-
-	err = handshake.isDifferentPublicKeyToPeer(peer)
-	if err != nil {
-		return err
+	if debugHandshake {
+		log.Println("NewHandshake")
+		spew.Printf("Stage: [%v] Challenge: %v Local: %v Remote: %v\n", stage, challenge, local, remote)
 	}
 
-	// The remote peer presents a hashed password for authentication, which we need
-	// to compare against our known passwords. Here we return an error if there's a problem
-	// with the supplied challenge (we can't find a matching password)
-
-	log.Printf("stage is %d", handshake.Stage)
-
-	var challengeAsBytes [12]byte
-	copy(challengeAsBytes[:], handshake.Data[4:16])
-	password, err := peer.checkChallenge(challengeAsBytes)
-	if err != nil {
-		return err
+	h := &Handshake{
+		Stage:     stage,
+		Challenge: challenge,
+		PublicKey: local.perm.PublicKey,
 	}
 
-	peer.PasswordHash = password.Hash
-	var NextNonce uint32
-
-	log.Printf("public key from handshake: [%x]", handshake.PublicKey)
-
-	if handshake.Stage < 2 {
-		if isEmpty(peer.PublicKey) || peer.NextNonce == 0 {
-			copy(peer.PublicKey[:], handshake.PublicKey[:])
-		}
-		peer.Secret = computeSharedSecretWithPasswordHash(peer.Local.KeyPair.PrivateKey, peer.PublicKey, peer.PasswordHash)
-		NextNonce = 2
-	} else {
-		if peer.Initiator == false {
-			return errAuthentication.setInfo("Unecessary additional key packet received")
-		}
-
-		peer.Secret = computeSharedSecretWithPasswordHash(peer.Local.KeyPair.PrivateKey, peer.PublicKey, peer.PasswordHash)
-		NextNonce = 4
+	// Generate random bytes for nonce... We trust that is is random and unique but
+	// we don't currently implement a way to track/verify
+	nonce := make([]byte, 24)
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
 	}
 
-	// Decrypting peer's temp public key
+	copy(h.Nonce[:], nonce)
 
-	payload := handshake.Data[72:]
-	var herTempPublicKey [32]byte
-
-	decrypted, success := box.OpenAfterPrecomputation(handshake.Data[72:], payload, &handshake.Nonce, peer.Secret)
-	if success == false {
-		peer.Established = false
-		return errAuthentication.setInfo("Decryption of temporary public key failed")
-	}
-
-	copy(herTempPublicKey[:], decrypted[88:120])
-
-	// Post-decryption checks
-
-	err = handshake.isDuplicateHelloPacket(peer, herTempPublicKey)
-	if err != nil {
-		return err
-	}
-
-	err = handshake.isDuplicateKeyPacket(peer, herTempPublicKey)
-	if err != nil {
-		return err
-	}
-
-	err = handshake.isKeyPacketWithDifferentTemporaryPublicKey(peer, herTempPublicKey)
-	if err != nil {
-		return err
-	}
-
-	err = handshake.isRepeatKeyPacketDuringSetup(peer, NextNonce, herTempPublicKey)
-	if err != nil {
-		return err
-	}
-
-	if isEmpty(peer.PublicKey) == true && isEmpty(handshake.PublicKey) == false {
-		copy(peer.PublicKey[:], handshake.PublicKey[:])
-	}
-
-	// TODO: handle data as part of handhsake
-	if len(handshake.Data) <= 160 {
-		if handshake.Challenge.Additional&(1<<15) != 0 {
-			return errNone
-		}
-	} else {
-		panic("got here")
-	}
-
-	return nil
-}
-
-func (peer *Peer) parseHandshake(stage uint32, data []byte) (*Handshake, error) {
-
-	log.Println("parseHandshake: stage is %d", stage)
-
-	h := new(Handshake)
-	h.Challenge = new(Challenge)
-	h.Data = make([]byte, len(data))
-
-	// Store the raw data for quick manipulations later
-	copy(h.Data[:], data)
-
+	// Check if we need a temp key pair at this stage of handshake. If so, generate them
 	//
-	if len(data) < 120 && stage >= 4 {
-		return nil, fmt.Errorf("CryptoAuthHandshake header too short")
-	}
-
-	r := bytes.NewReader(data)
-	binary.Read(r, binary.BigEndian, &h.Stage)
-	binary.Read(r, binary.BigEndian, &h.Challenge.Type)
-	binary.Read(r, binary.BigEndian, &h.Challenge.Lookup)
-	binary.Read(r, binary.BigEndian, &h.Challenge.RequirePacketAuthAndDerivationCount)
-	binary.Read(r, binary.BigEndian, &h.Challenge.Additional)
-	binary.Read(r, binary.BigEndian, &h.Nonce)
-	binary.Read(r, binary.BigEndian, &h.PublicKey)
-	binary.Read(r, binary.BigEndian, &h.Authenticator)
-	binary.Read(r, binary.BigEndian, &h.TempPublicKey)
-
-	spew.Dump(h)
-
-	return h, nil
-}
-
-func (peer *Peer) newHandshake(msg []byte, isSetup int) (*Handshake, error) {
-
-	var err error
-
-	h := new(Handshake)
-	h.Challenge = new(Challenge)
-
-	h.Stage = peer.NextNonce
-
-	// Generate a new random 24 byte nonce.
-	newNonce := make([]byte, 24)
-	rand.Read(newNonce)
-	copy(h.Nonce[:], newNonce)
-
-	copy(h.PublicKey[:], peer.Local.KeyPair.PublicKey[:])
-
-	if isEmpty(peer.PasswordHash) == false && peer.Initiator == true {
-		panic("encryptHandshake: got here")
-		h.Challenge.Type = 1
-	} else {
-		h.Challenge.Type = 0
-	}
-
-	h.Challenge.RequirePacketAuthAndDerivationCount |= (1 << 15)
-	h.Challenge.Additional &= ^uint16(1 << 15)
-
-	// TODO: The following code has nothing to do with a handshake, just updating
-	// the state of the Peer. This code should probably be moved somewhere else
-
-	if peer.NextNonce == 0 || peer.NextNonce == 2 {
-		if peer.LocalTempKeyPair == nil {
-			peer.LocalTempKeyPair, err = createTempKeyPair()
-			if err != nil {
+	// TODO (#design): I'm assuming that during a handshake, we will always, eventually need a temp key pair.
+	// Does it make sense to create it by default each time if it doesn't exist?
+	if requiresTempKeyPair(stage) == true {
+		if local.temp == nil {
+			if publicKey, privateKey, err := box.GenerateKey(rand.Reader); err != nil {
 				return nil, err
+			} else {
+				local.temp = &KeyPair{
+					PublicKey:  *publicKey,
+					PrivateKey: *privateKey,
+				}
+				if debugHandshake {
+					spew.Printf("Generated new temporary keypair: %v\n", local.temp)
+				}
 			}
 		}
 	}
 
-	if peer.NextNonce < 2 {
-		peer.Secret = computeSharedSecretWithPasswordHash(peer.Local.KeyPair.PrivateKey, peer.PublicKey, peer.PasswordHash)
-		peer.Initiator = true
-		peer.NextNonce = 1
+	// Get the shared secret to use
+
+	secret := getSharedSecret(local, remote, passwordHash)
+
+	// TODO: verify we have a temp public key set before attempting to encrypt it
+
+	// Build the packet
+	buf := new(bytes.Buffer)
+	binary.Write(buf, binary.BigEndian, h.Stage)
+	binary.Write(buf, binary.BigEndian, h.Challenge.Type)
+	binary.Write(buf, binary.BigEndian, h.Challenge.Lookup)
+	binary.Write(buf, binary.BigEndian, h.Challenge.Derivations)
+	binary.Write(buf, binary.BigEndian, h.Challenge.Additional)
+	binary.Write(buf, binary.BigEndian, h.Nonce)
+	binary.Write(buf, binary.BigEndian, h.PublicKey)
+
+	// Encrypt the temp public key. Add it to the handshake.
+
+	encryptedTempPubKey := box.SealAfterPrecomputation(buf.Bytes(), local.temp.PublicKey[:], &h.Nonce, secret)
+
+	if debugHandshake {
+		log.Printf("encryptedTempPubKey: [%x] len [%d]", encryptedTempPubKey, len(encryptedTempPubKey))
+		log.Printf("buf.Bytes() len [%d]", len(buf.Bytes()))
+	}
+
+	binary.Write(buf, binary.BigEndian, encryptedTempPubKey)
+
+	if debugHandshake {
+		log.Print("length of new handshake: ", len(buf.Bytes()))
+	}
+
+	return buf.Bytes(), nil
+
+}
+
+func (c *Connection) HandleHandshakePacket(nonce uint32, p []byte) error {
+
+	if len(p) < 120 {
+		if debugHandshake {
+			log.Printf("Received undersized message: %d long", len(p))
+		}
+		return errUndersizeMessage
+	}
+
+	h := new(Handshake)
+	h.Challenge = new(Challenge)
+
+	r := bytes.NewReader(p)
+	binary.Read(r, binary.BigEndian, &h.Stage)
+	binary.Read(r, binary.BigEndian, &h.Challenge.Type)
+	binary.Read(r, binary.BigEndian, &h.Challenge.Lookup)
+	binary.Read(r, binary.BigEndian, &h.Challenge.Derivations)
+	binary.Read(r, binary.BigEndian, &h.Challenge.Additional)
+	binary.Read(r, binary.BigEndian, &h.Nonce)
+	binary.Read(r, binary.BigEndian, &h.PublicKey)
+
+	// Get the password hash
+	if err := authenticateChallenge(c.passwordHash, p[4:16]); err != nil {
+		return err
+	}
+
+	//var herPermPublicKey [32]byte
+	nextNonce := 0
+	nextNonce++ // compile hack so it is 'declared and used'
+
+	//nextNonce = 0
+
+	if nonce < 2 {
+		if nonce == 0 {
+			if debugHandshake == true {
+				log.Printf("Received hello packet")
+			}
+		} else {
+			if debugHandshake == true {
+				log.Printf("Received repeate hello packet")
+			}
+		}
+
+		spew.Dump(c.remote)
+
+		if isEmpty(c.remote.perm.PublicKey) == true {
+			c.remote.perm.PublicKey = h.PublicKey
+		} else {
+			// compare known public key against received
+			if c.remote.perm.PublicKey != h.PublicKey {
+				if debugHandshake == true {
+					log.Println("receievd public key doesn't match known")
+				}
+				return errAuthentication
+			}
+		}
+		c.secret = *getSharedSecret(c.local, c.remote, c.passwordHash)
+		nextNonce = 2
 	} else {
-		peer.Secret = computeSharedSecret(peer.Local.KeyPair.PrivateKey, peer.TempPublicKey)
-		peer.NextNonce = 3
+		if nonce == 2 {
+			if debugHandshake == true {
+				log.Println("Received a key packet")
+			}
+		} else if nonce == 3 {
+			if debugHandshake == true {
+				log.Println("Received a repeat key packet")
+			}
+		} else {
+			if debugHandshake == true {
+				log.Printf("Received unknown packet: nonce [%u]", nonce)
+			}
+			return errAuthentication
+		}
+		if c.local.isInitiator == false {
+			if debugHandshake == true {
+				log.Println("Dropping stray key packet")
+			}
+			return errAuthentication
+		}
+
+		if c.remote.perm.PublicKey != h.PublicKey {
+			if debugHandshake == true {
+				log.Println("received public key doesn't match known")
+			}
+			return errAuthentication
+		}
+
+		c.secret = *getSharedSecret(c.local, c.remote, c.passwordHash)
+		nextNonce = 4
 	}
 
-	// Key Packet
-	if peer.NextNonce == 2 {
-		peer.Secret = computeSharedSecretWithPasswordHash(peer.Local.KeyPair.PrivateKey, peer.TempPublicKey, peer.PasswordHash)
+	if debugHandshake == true {
+		log.Printf("decrypting temp public key with\n\tsecret: [%x]\n\tnonce: [%x]", c.secret, h.Nonce)
 	}
 
-	return h, nil
-
-}
-
-func computeSharedSecret(privateKey *[32]byte, herPublicKey [32]byte) *[32]byte {
-
-	log.Printf("computing shared secret with:\n\tprivateKey: [%x]\n\therPublicKey: [%x]", privateKey, herPublicKey)
-
-	// TODO: check this, is this right way to check for empty [32]byte?
-
-	var secret [32]byte
-
-	box.Precompute(&secret, &herPublicKey, privateKey)
-	return &secret
-}
-
-func computeSharedSecretWithPasswordHash(privateKey *[32]byte, herPublicKey [32]byte, passwordHash [32]byte) *[32]byte {
-
-	// TODO: check this, is this right way to check for empty [32]byte?
-
-	var computedKey [32]byte
-	curve25519.ScalarMult(&computedKey, privateKey, &herPublicKey)
-
-	buff := make([]byte, 64)
-	copy(buff[:32], computedKey[:])
-	copy(buff[32:64], passwordHash[:])
-
-	secret := sha256.Sum256(buff)
-
-	return &secret
-}
-
-func (peer *Peer) checkChallenge(challenge [12]byte) (*Passwd, error) {
-	if challenge[0] != 1 {
-		return nil, errAuthentication.setInfo("Invalid authentication type")
+	decrypted, success := box.OpenAfterPrecomputation(p[72:], p[88:], &h.Nonce, &c.secret)
+	if success == false {
+		if debugHandshake {
+			log.Printf("Error decrypting temp public key from peer")
+		}
+		return errUndeliverable
 	}
+	// 88 - 120 is the public key part
+	copy(h.EncryptedTempPubKey[:], decrypted[88:120])
 
-	for _, v := range peer.Local.Passwords {
-		log.Printf("%x", v.Hash)
-		log.Printf("%x", challenge)
-		//a := make([]byte, 8)
-		var a []byte
-		var b []byte
-		//b := make([]byte, 12)
+	// Put the decrypted portion longer than 120 into handshake payload
+	copy(h.Payload, decrypted[120:])
 
-		copy(a, challenge[0:8])
-		copy(b, v.Hash[:])
-
-		if bytes.Compare(a, b) == 0 {
-			log.Println("getAuth: found matching account")
-			return v, nil
+	if isEmpty(c.remote.perm.PublicKey) {
+		copy(c.remote.perm.PublicKey[:], p[40:72])
+		if !isValidIPv6PublicKey(c.remote.perm.PublicKey) {
+			return errAuthentication.setInfo("Remote perm Public Key is not valid for IPv6")
 		}
 	}
 
-	return nil, errAuthentication.setInfo("No matching password found")
+	return nil
 }
+
+// func (h *Handshake) Marshal(peer *Peer) ([]byte, error) {
+
+// 	var out []byte
+
+// 	authenticatedAndEncryptedTempPubKey := box.SealAfterPrecomputation(out, peer.LocalTempKeyPair.PublicKey[:], &h.Nonce, peer.Secret)
+// 	//encryptRandomNonce(h.Nonce, peer.LocalTempKeyPair.PublicKey[:], peer.Secret)
+
+// 	buf := new(bytes.Buffer)
+// 	binary.Write(buf, binary.BigEndian, h.Stage)
+// 	binary.Write(buf, binary.BigEndian, h.Challenge.Type)
+// 	binary.Write(buf, binary.BigEndian, h.Challenge.Lookup)
+// 	binary.Write(buf, binary.BigEndian, h.Challenge.RequirePacketAuthAndDerivationCount)
+// 	binary.Write(buf, binary.BigEndian, h.Challenge.Additional)
+// 	binary.Write(buf, binary.BigEndian, h.Nonce)
+// 	binary.Write(buf, binary.BigEndian, h.PublicKey)
+// 	binary.Write(buf, binary.BigEndian, authenticatedAndEncryptedTempPubKey)
+
+// 	return buf.Bytes(), nil
+// }
+
+// // Logic to validate if an inbound handshake is correct based
+// // on the existing state of the peer
+
+// // TODO: Some of this should be split into pre-handshake creation and post-handshake creation
+// // Validate is also a misnomer, since validation happens here and in validate.go... :\
+
+// func (peer *Peer) parseHandshake(stage uint32, data []byte) (*Handshake, error) {
+
+// 	log.Println("parseHandshake: stage is %d", stage)
+
+// 	h := new(Handshake)
+// 	h.Challenge = new(Challenge)
+// 	h.Data = make([]byte, len(data))
+
+// 	// Store the raw data for quick manipulations later
+// 	copy(h.Data[:], data)
+
+// 	//
+// 	if len(data) < 120 && stage >= 4 {
+// 		return nil, fmt.Errorf("CryptoAuthHandshake header too short")
+// 	}
+
+// 	r := bytes.NewReader(data)
+// 	binary.Read(r, binary.BigEndian, &h.Stage)
+// 	binary.Read(r, binary.BigEndian, &h.Challenge.Type)
+// 	binary.Read(r, binary.BigEndian, &h.Challenge.Lookup)
+// 	binary.Read(r, binary.BigEndian, &h.Challenge.RequirePacketAuthAndDerivationCount)
+// 	binary.Read(r, binary.BigEndian, &h.Challenge.Additional)
+// 	binary.Read(r, binary.BigEndian, &h.Nonce)
+// 	binary.Read(r, binary.BigEndian, &h.PublicKey)
+// 	binary.Read(r, binary.BigEndian, &h.Authenticator)
+// 	binary.Read(r, binary.BigEndian, &h.TempPublicKey)
+
+// 	spew.Dump(h)
+
+// 	return h, nil
+// }
+
+// // func (peer *Peer) newHandshake(msg []byte, isSetup int) (*Handshake, error) {
+
+// // 	var err error
+
+// // 	h := new(Handshake)
+// // 	h.Challenge = new(Challenge)
+
+// // 	h.Stage = peer.NextNonce
+
+// // 	// Generate a new random 24 byte nonce.
+// // 	newNonce := make([]byte, 24)
+// // 	rand.Read(newNonce)
+// // 	copy(h.Nonce[:], newNonce)
+
+// // 	copy(h.PublicKey[:], peer.Local.KeyPair.PublicKey[:])
+
+// // 	if isEmpty(peer.PasswordHash) == false && peer.Initiator == true {
+// // 		panic("encryptHandshake: got here")
+// // 		h.Challenge.Type = 1
+// // 	} else {
+// // 		h.Challenge.Type = 0
+// // 	}
+
+// // 	h.Challenge.RequirePacketAuthAndDerivationCount |= (1 << 15)
+// // 	h.Challenge.Additional &= ^uint16(1 << 15)
+
+// // 	// TODO: The following code has nothing to do with a handshake, just updating
+// // 	// the state of the Peer. This code should probably be moved somewhere else
+
+// // 	if peer.NextNonce == 0 || peer.NextNonce == 2 {
+// // 		if peer.LocalTempKeyPair == nil {
+// // 			peer.LocalTempKeyPair, err = createTempKeyPair()
+// // 			if err != nil {
+// // 				return nil, err
+// // 			}
+// // 		}
+// // 	}
+
+// // 	if peer.NextNonce < 2 {
+// // 		peer.Secret = computeSharedSecretWithPasswordHash(peer.Local.KeyPair.PrivateKey, peer.PublicKey, peer.PasswordHash)
+// // 		peer.Initiator = true
+// // 		peer.NextNonce = 1
+// // 	} else {
+// // 		peer.Secret = computeSharedSecret(peer.Local.KeyPair.PrivateKey, peer.TempPublicKey)
+// // 		peer.NextNonce = 3
+// // 	}
+
+// // 	// Key Packet
+// // 	if peer.NextNonce == 2 {
+// // 		peer.Secret = computeSharedSecretWithPasswordHash(peer.Local.KeyPair.PrivateKey, peer.TempPublicKey, peer.PasswordHash)
+// // 	}
+
+// // 	return h, nil
+
+// // }
