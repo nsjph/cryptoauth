@@ -30,12 +30,12 @@ func createTempKeyPair() (*KeyPair, error) {
 }
 
 func keyToBase32(key [32]uint8) string {
-	return fmt.Sprintf("%s.k", base32Encode(key[:])[:52])
+	return fmt.Sprintf("%s.k", Base32Encode(key[:])[:52])
 }
 
 func DecodePublicKeyString(pubKeyString string) *[32]byte {
 
-	pubkey, err := base32Decode([]byte(pubKeyString[:52]))
+	pubkey, err := Base32Decode([]byte(pubKeyString[:52]))
 	checkFatal(err)
 
 	var publicKey [32]byte
