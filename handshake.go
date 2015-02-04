@@ -31,6 +31,7 @@ type Challenge struct {
 	Lookup                              [7]byte
 	RequirePacketAuthAndDerivationCount uint16
 	Additional                          uint16
+	Bytes                               [12]byte
 }
 
 type Handshake struct {
@@ -41,10 +42,21 @@ type Handshake struct {
 	AuthenticatorAndEncryptedTempPublicKey []byte
 	Authenticator                          [16]byte // 16 bytes
 	TempPublicKey                          [32]byte // 32 bytes
+	Encrypted                              []byte
 	Data                                   []byte
 }
 
+func (c *Connection) validateHandshakePacket() error {
+	return nil
+}
+
 func (c *Connection) handleHandshakePacket(nonce uint32, p []byte) error {
+
+	h := new(Handshake)
+
+	h.Stage = binary.BigEndian.Uint32(p[:4])
+	copy(h.Nonce[:], p[16:40])
+	copy(h.PublicKey[:], p[40:72])
 
 	if c.remote.host.PublicKey == nil {
 		copy(c.remote.host.PublicKey[:], p[40:72])
@@ -54,6 +66,9 @@ func (c *Connection) handleHandshakePacket(nonce uint32, p []byte) error {
 	}
 
 	return nil
+	// } else if c.remote.host.PublicKey != h.PublicKey {
+	// 	return errAuthentication.setInfo("Public key from this packet does not match existing remote host public key")
+	// }
 }
 
 func (h *Handshake) Marshal(peer *Peer) ([]byte, error) {
