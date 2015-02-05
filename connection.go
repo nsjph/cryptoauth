@@ -15,36 +15,23 @@
 package cryptoauth
 
 import (
+	_ "bufio"
 	"crypto/rand"
-	"crypto/sha256"
+	"fmt"
+	"github.com/davecgh/go-spew/spew"
 	"io"
+	"log"
 	"net"
 )
-
-type KeyPair struct {
-	PublicKey  [32]byte
-	PrivateKey [32]byte
-}
-
-type CryptoState struct {
-	perm        *KeyPair
-	temp        *KeyPair
-	password    string
-	isInitiator bool
-	nextNonce   uint32
-}
 
 // Each session is represented by a connection
 type Connection struct {
 	conn               *net.UDPConn
-	laddr              net.Addr
 	raddr              *net.UDPAddr
 	isEstablished      bool
 	lastPacketReceived uint32
 	local              *CryptoState
 	remote             *CryptoState
-	incoming           chan []byte // data received from remote
-	outgoing           chan []byte // data destined for remote
 	rand               io.Reader
 	secret             [32]byte
 	password           string
@@ -64,6 +51,8 @@ func NewConnection(conn *net.UDPConn, raddr *net.UDPAddr, local, remote *CryptoS
 	if remote == nil {
 		kp := new(KeyPair)
 		remote = NewCryptoState(kp, false)
+		remote.perm = new(KeyPair)
+		remote.temp = new(KeyPair)
 	}
 
 	if local == nil {
@@ -72,41 +61,52 @@ func NewConnection(conn *net.UDPConn, raddr *net.UDPAddr, local, remote *CryptoS
 
 	c := &Connection{
 		conn:          conn,
-		laddr:         conn.LocalAddr(),
 		raddr:         raddr,
 		isEstablished: false,
 		local:         local,
 		remote:        remote,
-		incoming:      make(chan []byte, 16),
-		outgoing:      make(chan []byte, 16),
 		rand:          rand.Reader,
 	}
+
 	return c
 }
 
-func NewCryptoState(kp *KeyPair, initiator bool) *CryptoState {
-	cs := &CryptoState{
-		perm:        kp,
-		temp:        nil,
-		nextNonce:   0,
-		isInitiator: initiator,
+func (c *Connection) readPacket() ([]byte, error) {
+
+	return nil, nil
+}
+
+func (c *Connection) writePacket(p []byte) error {
+
+	//NewHandshake(stage uint32, challenge *Challenge, local *CryptoState, remote *CryptoState, passwordHash [32]byte) ([]byte, error) {
+
+	// Create a handshake packet to send back
+	if c.isEstablished == false {
+		//NewChallenge(lookup [7]byte, derivations uint16, additional uint16) (*Challenge, error) {
+		challenge, err := c.NewChallenge()
+		if err != nil {
+			panic(err)
+		}
+		log.Printf("creating a new handshake, current nonce is %d, password hash is %x", c.local.nextNonce, c.passwordHash)
+		handshake, err := NewHandshake(c.local.nextNonce, challenge, c.local, c.remote, c.passwordHash)
+		n, err := c.conn.WriteToUDP(handshake, c.raddr)
+		if err != nil {
+			return err
+		}
+		log.Printf("wrote %d to %s", n, c.raddr.String())
+		return nil
+	} else {
+		panic("how to send data packet?")
 	}
 
-	return cs
+	if n, err := c.conn.WriteToUDP(p, c.raddr); err != nil {
+		debugHandshakeLogWithError("writePacket", err)
+	} else {
+		debugHandshakeLog(fmt.Sprintf("writePacket: wrote [%d] bytes to %s", n, c.raddr.String()))
+	}
 
-	// // If we have a permanent private key set, we're the server
-	// if isEmpty(cs.perm.PrivateKey) == false {
-	// 	cs.isInitiator == true
-	// }
-}
+	log.Print("writePacket")
+	spew.Dump(c.conn)
 
-func (c *Connection) SetPassword(password string) {
-	c.password = password
-	pwhash := sha256.Sum256([]byte(c.password))
-	copy(c.passwordHash[:], pwhash[:32])
-}
-
-func (c *CryptoState) NewTempKeys() (err error) {
-	c.temp, err = createTempKeyPair()
-	return err
+	return nil
 }

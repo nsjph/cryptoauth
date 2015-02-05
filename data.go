@@ -19,7 +19,7 @@ import (
 	_ "golang.org/x/crypto/nacl/box"
 )
 
-func (c *Connection) HandleDataPacket(nonce uint32, p []byte) ([]byte, error) {
+func (c *Connection) DecodeData(nonce uint32, p []byte) ([]byte, error) {
 
 	panic("fixme")
 

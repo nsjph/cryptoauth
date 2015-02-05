@@ -16,6 +16,7 @@ package cryptoauth
 
 import (
 	"bytes"
+
 	"log"
 )
 
@@ -38,21 +39,51 @@ func requiresPasswordHash(remote *CryptoState) bool {
 	return false
 }
 
-func NewChallenge(lookup [7]byte, derivations uint16, additional uint16) (*Challenge, error) {
+func (c *Connection) NewChallenge() (*Challenge, error) {
 
-	c := &Challenge{
-		Type:        AuthType,
-		Lookup:      lookup,
-		Derivations: derivations,
-		Additional:  additional,
+	// if we're initiator, we should have a password to use
+
+	// if this is a key packet, we should have identified the correct user/pass already
+
+	if c.isEstablished == false && c.local.isInitiator == true {
+		log.Printf("creating an authenticated challenge")
+		if len(c.password) > 0 {
+			challenge := make([]byte, 12)
+			pwhash := HashPassword([]byte(c.password))
+			copy(challenge[:], pwhash[:12])
+		} else {
+			panic("help!")
+		}
+	} else {
+		log.Println("creating a key packet challenge")
+		ch := new(Challenge)
+		ch.Type = 0
+		ch.Derivations |= (1 << 15)
+		ch.Additional &= ^uint16(1 << 15)
+
+		return ch, nil
+
+		// challenge.Derivations |= (1 << 15)
+		// challenge.Additional &= ^uint16(1 << 15)
+
+		// log.Fatal("Unable to create a new Challenge. No password assigned for connection")
 	}
 
-	// TODO: double check this buddy
-	c.Derivations |= (1 << 15)
-	c.Additional &= ^uint16(1 << 15)
-	c.Derivations &= ^uint16(1 << 15)
+	panic("supermannnnnnnn")
 
-	return c, nil
+	// challenge := &Challenge{
+	// 	Type:        AuthType,
+	// 	Lookup:      lookup,
+	// 	Derivations: derivations,
+	// 	Additional:  additional,
+	// }
+
+	// // TODO: double check this buddy
+	// challenge.Derivations |= (1 << 15)
+	// challenge.Additional &= ^uint16(1 << 15)
+	// challenge.Derivations &= ^uint16(1 << 15)
+
+	return nil, nil
 }
 
 // Use the challenge from remote peer's Handshake packet to identity

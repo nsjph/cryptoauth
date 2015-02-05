@@ -30,3 +30,21 @@ func checkFatal(err error) {
 		log.Fatalf("Error: %s", err.Error())
 	}
 }
+
+func debugHandshakeLog(msg string) {
+	if debugHandshake == true {
+		log.Print("[DEBUG] ", msg)
+	}
+}
+
+func debugHandshakeLogWithDetails(msg string, details string) {
+	if debugHandshake == true {
+		log.Printf("[DEBUG] %s: %s", msg, details)
+	}
+}
+
+func debugHandshakeLogWithError(msg string, err error) {
+	if debugHandshake == true {
+		log.Printf("[ERROR] %s: %s", msg, err.Error())
+	}
+}

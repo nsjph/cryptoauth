@@ -1,8 +1,3 @@
-// -build libsodium1.0
-//
-// When built with -tags 'libsodium1.0', we use crypto_sodium.go
-// instead of this file
-
 // Copyright 2015 JPH <jph@hackworth.be>
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,6 +26,19 @@ import (
 	"net"
 )
 
+type KeyPair struct {
+	PublicKey  [32]byte
+	PrivateKey [32]byte
+}
+
+type CryptoState struct {
+	perm        *KeyPair
+	temp        *KeyPair
+	password    string
+	isInitiator bool
+	nextNonce   uint32
+}
+
 // TODO: replace byte comparisons with crypto/subtle.ConstantType-related functions
 
 // getSharedSecret is a high-level function to generate an appropriate shared secret based on the stage of the handshake.
@@ -51,10 +59,10 @@ func getSharedSecret(local *CryptoState, remote *CryptoState, passwordHash [32]b
 		secret = computeSharedSecretWithPasswordHash(&local.perm.PrivateKey, remote.perm.PublicKey, passwordHash)
 		local.nextNonce = 1
 		if debugHandshake {
-			log.Printf("getSharedSecret:\n\therPermPublicKey [%x]\n\tpasswordHash: [%x]\n\tsecret: [%x]", remote.perm.PublicKey, passwordHash, secret)
+			log.Printf("getSharedSecret:\n\therPermPublicKey [%x]\n\tmyPublicKey [%x]\n\tpasswordHash: [%x]\n\tsecret: [%x]", remote.perm.PublicKey, local.perm.PublicKey, passwordHash, *secret)
 		}
 	} else {
-		secret = computeSharedSecretWithPasswordHash(&local.perm.PrivateKey, remote.temp.PublicKey, passwordHash)
+		secret = computeSharedSecret(&local.perm.PrivateKey, remote.temp.PublicKey)
 		local.nextNonce = 3
 		if debugHandshake {
 			log.Printf("getSharedSecret:\n\therTempPublicKey [%x]\n\tpasswordHash: [%x]\n\tsecret: [%x]", remote.temp.PublicKey, passwordHash, secret)
@@ -111,6 +119,10 @@ func DecodePublicKeyString(pubKeyString string) *[32]byte {
 	var publicKey [32]byte
 
 	copy(publicKey[:], pubkey)
+
+	if debugHandshake == true {
+		log.Printf("DecodePublicKeyString:\n\tstring [%s] -> hex [%x]\n", pubKeyString, publicKey)
+	}
 
 	return &publicKey
 }
@@ -180,4 +192,35 @@ func NewIdentityKeys() (*IdentityKeyPair, error) {
 	}
 
 	return &IdentityKeyPair{publicKey, privateKey, ipv6}, nil
+}
+
+func NewCryptoState(kp *KeyPair, initiator bool) *CryptoState {
+	cs := &CryptoState{
+		perm:        kp,
+		temp:        nil,
+		nextNonce:   0,
+		isInitiator: initiator,
+	}
+
+	// if debugHandshake == true {
+	// 	log.Printf("NewCryptoState:\n\tkp->pk [%x]\n\tkp->sk [%x]", kp.PublicKey, kp.PrivateKey)
+	// }
+
+	return cs
+
+	// // If we have a permanent private key set, we're the server
+	// if isEmpty(cs.perm.PrivateKey) == false {
+	// 	cs.isInitiator == true
+	// }
+}
+
+func (c *Connection) SetPassword(password string) {
+	c.password = password
+	pwhash := sha256.Sum256([]byte(c.password))
+	copy(c.passwordHash[:], pwhash[:32])
+}
+
+func (c *CryptoState) NewTempKeys() (err error) {
+	c.temp, err = createTempKeyPair()
+	return err
 }

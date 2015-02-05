@@ -30,17 +30,20 @@ type Handshake struct {
 	Challenge           *Challenge // 12 bytes (16)
 	Nonce               [24]byte   // 24 bytes (40)
 	PublicKey           [32]byte   // 32 bytes (72)
-	EncryptedTempPubKey []byte
+	EncryptedTempPubKey [32]byte
 	Payload             []byte
 }
 
 func requiresTempKeyPair(stage uint32) bool {
 	switch stage {
 	case 0:
+		log.Print("stage 0 requires tempkey")
 		return true
 	case 2:
+		log.Print("stage 2 requires tempkey")
 		return true
 	default:
+		log.Print("stage default requires tempkey")
 		return false
 	}
 
@@ -52,6 +55,8 @@ func requiresTempKeyPair(stage uint32) bool {
 
 func NewHandshake(stage uint32, challenge *Challenge, local *CryptoState, remote *CryptoState, passwordHash [32]byte) ([]byte, error) {
 
+	var err error
+
 	if debugHandshake {
 		log.Println("NewHandshake")
 		spew.Printf("Stage: [%v] Challenge: %v Local: %v Remote: %v\n", stage, challenge, local, remote)
@@ -59,14 +64,13 @@ func NewHandshake(stage uint32, challenge *Challenge, local *CryptoState, remote
 
 	h := &Handshake{
 		Stage:     stage,
-		Challenge: challenge,
 		PublicKey: local.perm.PublicKey,
 	}
 
 	// Generate random bytes for nonce... We trust that is is random and unique but
 	// we don't currently implement a way to track/verify
 	nonce := make([]byte, 24)
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, err
 	}
 
@@ -76,21 +80,20 @@ func NewHandshake(stage uint32, challenge *Challenge, local *CryptoState, remote
 	//
 	// TODO (#design): I'm assuming that during a handshake, we will always, eventually need a temp key pair.
 	// Does it make sense to create it by default each time if it doesn't exist?
-	if requiresTempKeyPair(stage) == true {
-		if local.temp == nil {
-			if publicKey, privateKey, err := box.GenerateKey(rand.Reader); err != nil {
-				return nil, err
-			} else {
-				local.temp = &KeyPair{
-					PublicKey:  *publicKey,
-					PrivateKey: *privateKey,
-				}
-				if debugHandshake {
-					spew.Printf("Generated new temporary keypair: %v\n", local.temp)
-				}
-			}
-		}
-	}
+	// if requiresTempKeyPair(stage) == true {
+	// 	local.temp = new(KeyPair)
+	// 	pk, sk, err := box.GenerateKey(rand.Reader)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+
+	// 	copy(local.temp.PublicKey[:], pk[:])
+	// 	copy(local.temp.PrivateKey[:], sk[:])
+
+	// 	if debugHandshake {
+	// 		spew.Printf("Generated new temporary keypair: %v\n", local.temp)
+	// 	}
+	// }
 
 	// Get the shared secret to use
 
@@ -101,19 +104,28 @@ func NewHandshake(stage uint32, challenge *Challenge, local *CryptoState, remote
 	// Build the packet
 	buf := new(bytes.Buffer)
 	binary.Write(buf, binary.BigEndian, h.Stage)
-	binary.Write(buf, binary.BigEndian, h.Challenge.Type)
-	binary.Write(buf, binary.BigEndian, h.Challenge.Lookup)
-	binary.Write(buf, binary.BigEndian, h.Challenge.Derivations)
-	binary.Write(buf, binary.BigEndian, h.Challenge.Additional)
+	binary.Write(buf, binary.BigEndian, challenge.Type)
+	binary.Write(buf, binary.BigEndian, challenge.Lookup)
+	binary.Write(buf, binary.BigEndian, challenge.Derivations)
+	binary.Write(buf, binary.BigEndian, challenge.Additional)
+	//binary.Write(buf, binary.BigEndian, challenge)
 	binary.Write(buf, binary.BigEndian, h.Nonce)
 	binary.Write(buf, binary.BigEndian, h.PublicKey)
 
 	// Encrypt the temp public key. Add it to the handshake.
 
-	encryptedTempPubKey := box.SealAfterPrecomputation(buf.Bytes(), local.temp.PublicKey[:], &h.Nonce, secret)
+	var out []byte
+
+	if local.temp == nil {
+		local.temp, _ = createTempKeyPair()
+	}
+
+	spew.Dump(local.temp)
+
+	encryptedTempPubKey := box.SealAfterPrecomputation(out, local.temp.PublicKey[:], &h.Nonce, secret)
 
 	if debugHandshake {
-		log.Printf("encryptedTempPubKey: [%x] len [%d]", encryptedTempPubKey, len(encryptedTempPubKey))
+		log.Printf("encryptedTempPubKey:\n\tnonce [%x]\n\tsecret [%x]\n\tmyTempPubKey [%x]", h.Nonce, secret, local.temp.PublicKey)
 		log.Printf("buf.Bytes() len [%d]", len(buf.Bytes()))
 	}
 
@@ -127,7 +139,7 @@ func NewHandshake(stage uint32, challenge *Challenge, local *CryptoState, remote
 
 }
 
-func (c *Connection) HandleHandshakePacket(nonce uint32, p []byte) error {
+func (c *Connection) DecodeHandshake(nonce uint32, p []byte) error {
 
 	if len(p) < 120 {
 		if debugHandshake {
@@ -169,8 +181,6 @@ func (c *Connection) HandleHandshakePacket(nonce uint32, p []byte) error {
 				log.Printf("Received repeate hello packet")
 			}
 		}
-
-		spew.Dump(c.remote)
 
 		if isEmpty(c.remote.perm.PublicKey) == true {
 			c.remote.perm.PublicKey = h.PublicKey
@@ -222,15 +232,25 @@ func (c *Connection) HandleHandshakePacket(nonce uint32, p []byte) error {
 		log.Printf("decrypting temp public key with\n\tsecret: [%x]\n\tnonce: [%x]", c.secret, h.Nonce)
 	}
 
-	decrypted, success := box.OpenAfterPrecomputation(p[72:], p[88:], &h.Nonce, &c.secret)
+	// byte 72 of a handshake is where the authenticated and encrypted temp public key begins
+
+	decrypted, success := box.OpenAfterPrecomputation(p[72:], p[72:], &h.Nonce, &c.secret)
 	if success == false {
 		if debugHandshake {
 			log.Printf("Error decrypting temp public key from peer")
 		}
 		return errUndeliverable
+	} else {
+		// successfully decrypted
+		if debugHandshake == true {
+			log.Println("decrypted temp pub key successfully")
+		}
+		// byte 88 is where the actual temp public key is in the decrypted variable
+		copy(c.remote.temp.PublicKey[:], decrypted[88:120])
 	}
 	// 88 - 120 is the public key part
-	copy(h.EncryptedTempPubKey[:], decrypted[88:120])
+	h.EncryptedTempPubKey = c.remote.temp.PublicKey
+	//copy(h.EncryptedTempPubKey[:], decrypted[88:120])
 
 	// Put the decrypted portion longer than 120 into handshake payload
 	copy(h.Payload, decrypted[120:])
