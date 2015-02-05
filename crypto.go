@@ -1,3 +1,8 @@
+// -build libsodium1.0
+//
+// When built with -tags 'libsodium1.0', we use crypto_sodium.go
+// instead of this file
+
 // Copyright 2015 JPH <jph@hackworth.be>
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,6 +30,8 @@ import (
 	"log"
 	"net"
 )
+
+// TODO: replace byte comparisons with crypto/subtle.ConstantType-related functions
 
 // getSharedSecret is a high-level function to generate an appropriate shared secret based on the stage of the handshake.
 //
