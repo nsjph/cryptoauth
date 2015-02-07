@@ -16,7 +16,6 @@ package cryptoauth
 
 import (
 	"bytes"
-
 	"log"
 )
 
@@ -63,25 +62,9 @@ func (c *Connection) NewChallenge() (*Challenge, error) {
 
 		return ch, nil
 
-		// challenge.Derivations |= (1 << 15)
-		// challenge.Additional &= ^uint16(1 << 15)
-
-		// log.Fatal("Unable to create a new Challenge. No password assigned for connection")
 	}
 
 	panic("supermannnnnnnn")
-
-	// challenge := &Challenge{
-	// 	Type:        AuthType,
-	// 	Lookup:      lookup,
-	// 	Derivations: derivations,
-	// 	Additional:  additional,
-	// }
-
-	// // TODO: double check this buddy
-	// challenge.Derivations |= (1 << 15)
-	// challenge.Additional &= ^uint16(1 << 15)
-	// challenge.Derivations &= ^uint16(1 << 15)
 
 	return nil, nil
 }
@@ -109,7 +92,6 @@ func authenticateChallenge(passwordHash [32]byte, challenge []byte) error {
 
 	var a []byte
 	var b []byte
-	//b := make([]byte, 12)
 
 	copy(a, challenge[0:8])
 	copy(b, passwordHash[:])
@@ -124,28 +106,3 @@ func authenticateChallenge(passwordHash [32]byte, challenge []byte) error {
 
 	return errAuthentication.setInfo("No matching password found")
 }
-
-// func authenticateChallenge(passwords map[[32]byte]*Passwd, challenge [12]byte) (*Passwd, error) {
-// 	if challenge[0] != 1 {
-// 		return nil, errAuthentication.setInfo("Invalid authentication type")
-// 	}
-
-// 	for _, v := range passwords {
-// 		log.Printf("%x", v.Hash)
-// 		log.Printf("%x", challenge)
-// 		//a := make([]byte, 8)
-// 		var a []byte
-// 		var b []byte
-// 		//b := make([]byte, 12)
-
-// 		copy(a, challenge[0:8])
-// 		copy(b, v.Hash[:])
-
-// 		if bytes.Compare(a, b) == 0 {
-// 			log.Println("getAuth: found matching account")
-// 			return v, nil
-// 		}
-// 	}
-
-// 	return nil, errAuthentication.setInfo("No matching password found")
-// }

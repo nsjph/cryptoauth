@@ -17,6 +17,8 @@ package cryptoauth
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
+	"github.com/davecgh/go-spew/spew"
 	"log"
 	"math"
 )
@@ -27,9 +29,92 @@ var (
 	errRequirePassword  = errors.New("Require password to connect to peer")
 )
 
-func (c *Connection) HandlePacket(p []byte) error {
+func isDataPacket(nonce uint32) bool {
 
-	// Check minimum length
+	if nonce >= 4 && nonce != math.MaxUint32 {
+		return true
+	}
+
+	return false
+}
+
+func (c *Connection) HandlePacket2(p []byte) error {
+	nonce := binary.BigEndian.Uint32(p[:4])
+
+	log.Printf("received packet with nonce: %d", nonce)
+
+	if c.isEstablished == false {
+		if isDataPacket(nonce) == true {
+
+			// if we dont know anything about the remote peer's temp keys,
+			// then we might've restarted and received a packet from previously
+			// valid session. We can't decrypt it without knowing their temp keys,
+			// so let's ignore it...
+
+			if c.remote.temp == nil {
+				c.resetSession()
+				return errUndeliverable
+			}
+
+			c.secret = computeSharedSecret(&c.local.temp.PrivateKey, &c.remote.temp.PublicKey)
+			c.local.nextNonce++
+			if _, err := c.DecodeData(nonce, p); err != nil {
+				debugHandshakeLogWithError("Error decoding data message", err)
+				return errUndeliverable
+			} else {
+				debugHandshakeLog("Handshake Complete!")
+				c.remote.temp = nil
+				c.local.temp = nil
+				c.isEstablished = true
+				return nil
+			}
+
+			panic("beep beep ritchie")
+		}
+
+		debugHandshakeLog("decoding handshake. our next nonce is")
+		if err := c.DecodeHandshake2(nonce, p); err != nil {
+			debugHandshakeLogWithError("HandlePacket: error decoding handshake", err)
+			return err
+		} else {
+			debugHandshakeLog(fmt.Sprintf("HandlePacket: successfully decoded handshake [%d]", c.local.nextNonce))
+			c.writePacket([]byte{})
+			return nil
+		}
+
+		panic("decrypt handshake here")
+	} else if isDataPacket(nonce) == true {
+		if _, err := c.DecodeData(nonce, p); err != nil {
+			debugHandshakeLogWithError("Error decoding data message", err)
+			return errUndeliverable
+		} else {
+			debugHandshakeLog("Decrypted message successfully")
+			return nil
+		}
+		panic("decrypt message here")
+	} else if isHelloPacket(nonce) == true {
+		debugHandshakeLog("Received hello packet for established session")
+		if err := c.DecodeHandshake2(nonce, p); err != nil {
+			debugHandshakeLogWithError("HandlePacket: error decoding handshake", err)
+			return err
+		} else {
+			debugHandshakeLog(fmt.Sprintf("HandlePacket: successfully decoded handshake [%d]", c.local.nextNonce))
+			c.writePacket([]byte{})
+			return nil
+		}
+		panic("decrypt handshake here")
+	} else {
+		return errUndeliverable
+	}
+
+	log.Fatalf("fell through, nonce: %u", nonce)
+
+	panic("fell through")
+
+	return errUnknown
+}
+
+func (c *Connection) HandlePacket(p []byte) error {
 
 	if len(p) < 20 {
 		return errUndersizeMessage
@@ -41,17 +126,19 @@ func (c *Connection) HandlePacket(p []byte) error {
 	if c.isEstablished == false {
 		if nonce > 3 && nonce != math.MaxUint32 {
 			if c.local.nextNonce < 3 {
-				if debugHandshake {
-					log.Println("Dropping inbound message to unconfigured session")
-				}
+				debugHandshakeLog("Dropping inbound message to unconfigured session")
+
 				return errUndeliverable
 			}
+
+			debugHandshakeLogWithDetails("Trying final handshake step with", c.raddr.String())
+
 			if debugHandshake {
 				log.Println("Trying final handshake step with remote peer: ", c.raddr.String())
 			}
-			c.secret = *computeSharedSecret(&c.local.temp.PrivateKey, c.remote.temp.PublicKey)
+			c.secret = computeSharedSecret(&c.local.temp.PrivateKey, &c.remote.temp.PublicKey)
 			c.local.nextNonce += 3
-			if _, err := c.HandleDataPacket(nonce, p); err != nil {
+			if _, err := c.DecodeData(nonce, p); err != nil {
 				if debugHandshake {
 					log.Printf("Error decrypting data packet: %s", err.Error())
 				}
@@ -68,21 +155,40 @@ func (c *Connection) HandlePacket(p []byte) error {
 
 		}
 
-		return c.HandleHandshakePacket(nonce, p)
+		if err := c.DecodeHandshake2(nonce, p); err != nil {
+			debugHandshakeLogWithError("HandlePacket: error decoding handshake", err)
+			return err
+		} else {
+			// success!
+			debugHandshakeLog(fmt.Sprintf("HandlePacket: successfully decoded handshake [%d]", c.local.nextNonce))
+			c.local.nextNonce++
+			c.writePacket([]byte{})
+			panic("bing")
+			return nil
+		}
 	} else if nonce > 3 && nonce != math.MaxUint32 {
-		if _, err := c.HandleDataPacket(nonce, p); err != nil {
-			if debugHandshake {
-				log.Printf("Error decrypting data packet: %s", err.Error())
-			}
+		if _, err := c.DecodeData(nonce, p); err != nil {
+			debugHandshakeLogWithError("HandlePacket: failed to decrypt data packet", err)
+
 			return errUndeliverable.setInfo(err.Error())
 		} else {
-			if debugHandshake {
-				log.Printf("Successfully decrypted message from %s with nonce %x", c.raddr.String(), nonce)
-			}
+			debugHandshakeLogWithDetails("HandlePacket: successfully decrypted data packet from", c.raddr.String())
+
 			return nil
 		}
 	} else if nonce < 2 {
-		return c.HandleHandshakePacket(nonce, p)
+		if err := c.DecodeHandshake2(nonce, p); err != nil {
+			if debugHandshake == true {
+				log.Print("Error decoding handshake: ", err)
+			}
+			return err
+		} else {
+			// do something with the packet
+			if debugHandshake == true {
+				log.Printf("Decoded handshake successfully: nextnonce %d", c.local.nextNonce)
+			}
+			panic("reply")
+		}
 	} else {
 		if debugHandshake {
 			log.Printf("Dropping key packet during established session with nonce of %d", nonce)
@@ -90,95 +196,22 @@ func (c *Connection) HandlePacket(p []byte) error {
 		return errUndeliverable
 	}
 
+	spew.Dump(c)
+
 	panic("shouldnt be here")
 
 	return errUnknown
 
 }
 
-// func (peer *Peer) ParseMessage(msg []byte) ([]byte, error) {
-
-// 	if len(msg) < 20 {
-// 		return nil, errUndersizeMessage
-// 	}
-
-// 	nonce := binary.BigEndian.Uint32(msg[:4])
-
-// 	// Prioritize established sessions and ensure the nonce matches expectations
-// 	// for established session. We may have an established session, but the
-// 	// peer may have reset it (hence the >=4 check)
-// 	if peer.Established == true && nonce >= 4 && nonce != math.MaxUint32 {
-// 		d, err := peer.parseDataPacket(nonce, msg[4:])
-// 		if err != nil {
-// 			return nil, err
-// 		} else {
-// 			// successfully parsed...
-// 			return d.Message, nil
-// 		}
-// 	} else if nonce > 3 && nonce != math.MaxUint32 {
-// 		log.Println("trying to complete handshake")
-// 		peer.Secret = computeSharedSecret(peer.LocalTempKeyPair.PrivateKey, peer.TempPublicKey)
-// 		peer.NextNonce += 3
-
-// 		d, err := peer.parseDataPacket(nonce, msg)
-// 		if err != nil {
-// 			checkFatal(err)
-// 		} else {
-// 			peer.Established = true
-// 			log.Println("handshake completed")
-// 			return d.Message, nil
-// 		}
-
-// 	}
-
-// 	handshake, err := peer.parseHandshake(nonce, msg)
-// 	checkFatal(err)
-// 	err = peer.validateHandshake(handshake, msg)
-// 	checkFatal(err)
-
-// 	switch peer.NextNonce {
-// 	case 0:
-// 		panic("nextnonce is 0")
-// 	case 1:
-// 		panic("nextnonce is 1")
-// 	case 2:
-// 		log.Println("nextnonce is 2")
-// 		handshake, err := peer.newHandshake([]byte{}, 1)
-// 		checkFatal(err)
-// 		msg, err := handshake.Marshal(peer)
-// 		checkFatal(err)
-// 		return nil, peer.sendMessage(msg)
-// 	case 3:
-// 		log.Println("nextnonce is 3")
-// 		handshake, err := peer.newHandshake([]byte{}, 1)
-// 		checkFatal(err)
-// 		msg, err := handshake.Marshal(peer)
-// 		checkFatal(err)
-// 		return nil, peer.sendMessage(msg)
-// 	case 4:
-// 		log.Println("nextnonce is 4")
-// 	default:
-// 		log.Printf("what do I do with nonce [%d]", peer.NextNonce)
-// 		return nil, errUnknown
-// 	}
-
-// 	return nil, nil
-// }
-
-// func (peer *Peer) sendMessage(msg []byte) error {
-// 	if peer.NextNonce >= 0xfffffff0 {
-// 		panic("write nonce resetting code")
-// 	}
-// 	_, err := peer.Local.Conn.WriteToUDP(msg, peer.Addr)
-// 	return err
-// }
-
 func (c *Connection) resetSession() {
+	log.Printf("resetting session!!!!!!!!!!!!!!!")
 	c.local.nextNonce = 0
 	c.local.temp = nil
 
 	// TODO: Check this next bit for logic
 	c.local.isInitiator = false
-	c.remote = nil
+	c.remote = NewCryptoState(new(KeyPair), nil, c.local.isInitiator)
+	c.isEstablished = false
 
 }

@@ -18,6 +18,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/sha512"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"golang.org/x/crypto/curve25519"
@@ -41,6 +42,16 @@ type CryptoState struct {
 
 // TODO: replace byte comparisons with crypto/subtle.ConstantType-related functions
 
+func newNonce() ([24]byte, error) {
+	var nonce [24]byte
+	if n, err := rand.Read(nonce[:]); err != nil {
+		return nonce, err
+	} else if n != 24 {
+		return nonce, fmt.Errorf("Did not read enough - wanted 24, got %v", n)
+	}
+	return nonce, nil
+}
+
 // getSharedSecret is a high-level function to generate an appropriate shared secret based on the stage of the handshake.
 //
 // If it's a hello packet (stage 1), we use our perm keys and their perm public key
@@ -49,23 +60,23 @@ type CryptoState struct {
 //
 // In both cases, we use the same shared password hash
 
-func getSharedSecret(local *CryptoState, remote *CryptoState, passwordHash [32]byte) (secret *[32]byte) {
+func getSharedSecret(local *CryptoState, remote *CryptoState, passwordHash *[32]byte) (secret [32]byte) {
 
 	// TODO: Validate that keys exist before using them
 
 	// TODO: do we need the nextNonce setting here??
 
 	if local.nextNonce < 2 {
-		secret = computeSharedSecretWithPasswordHash(&local.perm.PrivateKey, remote.perm.PublicKey, passwordHash)
+		secret = computeSharedSecretWithPasswordHash(&local.perm.PrivateKey, &remote.perm.PublicKey, passwordHash)
 		local.nextNonce = 1
 		if debugHandshake {
-			log.Printf("getSharedSecret:\n\therPermPublicKey [%x]\n\tmyPublicKey [%x]\n\tpasswordHash: [%x]\n\tsecret: [%x]", remote.perm.PublicKey, local.perm.PublicKey, passwordHash, *secret)
+			log.Printf("getSharedSecret:\n\therPermPublicKey [%x]\n\tmyPublicKey [%x]\n\tpasswordHash: [%x]\n\tsecret: [%x]", remote.perm.PublicKey, local.perm.PublicKey, passwordHash, secret)
 		}
 	} else {
-		secret = computeSharedSecret(&local.perm.PrivateKey, remote.temp.PublicKey)
+		secret = computeSharedSecret(&local.perm.PrivateKey, &remote.temp.PublicKey)
 		local.nextNonce = 3
 		if debugHandshake {
-			log.Printf("getSharedSecret:\n\therTempPublicKey [%x]\n\tpasswordHash: [%x]\n\tsecret: [%x]", remote.temp.PublicKey, passwordHash, secret)
+			log.Printf("getSharedSecret:\n\therTempPublicKey [%x]\n\tpasswordHash: [%x]\n\tsecret: [%x]", remote.temp.PublicKey, secret)
 		}
 	}
 
@@ -74,7 +85,7 @@ func getSharedSecret(local *CryptoState, remote *CryptoState, passwordHash [32]b
 	return secret
 }
 
-func computeSharedSecret(privateKey *[32]byte, herPublicKey [32]byte) *[32]byte {
+func computeSharedSecret(privateKey *[32]byte, herPublicKey *[32]byte) [32]byte {
 
 	log.Printf("computing shared secret with:\n\tprivateKey: [%x]\n\therPublicKey: [%x]", privateKey, herPublicKey)
 
@@ -82,16 +93,16 @@ func computeSharedSecret(privateKey *[32]byte, herPublicKey [32]byte) *[32]byte 
 
 	var secret [32]byte
 
-	box.Precompute(&secret, &herPublicKey, privateKey)
-	return &secret
+	box.Precompute(&secret, herPublicKey, privateKey)
+	return secret
 }
 
-func computeSharedSecretWithPasswordHash(privateKey *[32]byte, herPublicKey [32]byte, passwordHash [32]byte) *[32]byte {
+func computeSharedSecretWithPasswordHash(privateKey *[32]byte, herPublicKey *[32]byte, passwordHash *[32]byte) [32]byte {
 
 	// TODO: check this, is this right way to check for empty [32]byte?
 
 	var computedKey [32]byte
-	curve25519.ScalarMult(&computedKey, privateKey, &herPublicKey)
+	curve25519.ScalarMult(&computedKey, privateKey, herPublicKey)
 
 	buff := make([]byte, 64)
 	copy(buff[:32], computedKey[:])
@@ -99,7 +110,18 @@ func computeSharedSecretWithPasswordHash(privateKey *[32]byte, herPublicKey [32]
 
 	secret := sha256.Sum256(buff)
 
-	return &secret
+	return secret
+}
+
+// These two functions from crypto/subtle are here so we can swap between golang or libsodium crypto backends
+// without impacting higher-level functions
+
+func constantTimeCompare(x, y []byte) int {
+	return subtle.ConstantTimeCompare(x, y)
+}
+
+func constantTimeCopy(v int, x, y []byte) {
+	subtle.ConstantTimeCopy(v, x, y)
 }
 
 func createTempKeyPair() (*KeyPair, error) {
@@ -128,7 +150,6 @@ func DecodePublicKeyString(pubKeyString string) *[32]byte {
 }
 
 func DecodePrivateKeyString(privateKeyString string) *[32]byte {
-	fmt.Printf("length of privateKeyString is %d", len(privateKeyString))
 	var privateKey [32]byte
 	_, err := hex.Decode(privateKey[:], []byte(privateKeyString))
 	checkFatal(err)
@@ -157,8 +178,6 @@ func isValidIPv6PublicKey(k [32]byte) bool {
 }
 
 func isValidIPv6Key(k []byte) bool {
-
-	//ip := hashPublicKey(k[:])
 	ip := net.IP.To16(k[:])
 
 	if ip[0] == 0xFC {
@@ -166,12 +185,6 @@ func isValidIPv6Key(k []byte) bool {
 	}
 
 	return false
-
-	// if ip == nil {
-	// 	return false
-	// }
-
-	// return false
 }
 
 func NewIdentityKeys() (*IdentityKeyPair, error) {
@@ -194,24 +207,16 @@ func NewIdentityKeys() (*IdentityKeyPair, error) {
 	return &IdentityKeyPair{publicKey, privateKey, ipv6}, nil
 }
 
-func NewCryptoState(kp *KeyPair, initiator bool) *CryptoState {
+func NewCryptoState(perm, temp *KeyPair, initiator bool) *CryptoState {
+
 	cs := &CryptoState{
-		perm:        kp,
-		temp:        nil,
+		perm:        perm,
+		temp:        temp,
 		nextNonce:   0,
 		isInitiator: initiator,
 	}
 
-	// if debugHandshake == true {
-	// 	log.Printf("NewCryptoState:\n\tkp->pk [%x]\n\tkp->sk [%x]", kp.PublicKey, kp.PrivateKey)
-	// }
-
 	return cs
-
-	// // If we have a permanent private key set, we're the server
-	// if isEmpty(cs.perm.PrivateKey) == false {
-	// 	cs.isInitiator == true
-	// }
 }
 
 func (c *Connection) SetPassword(password string) {
@@ -223,4 +228,8 @@ func (c *Connection) SetPassword(password string) {
 func (c *CryptoState) NewTempKeys() (err error) {
 	c.temp, err = createTempKeyPair()
 	return err
+}
+
+func decryptDataPacket(p []byte, nonce *[24]byte, secret *[32]byte) ([]byte, bool) {
+	return box.OpenAfterPrecomputation(p, p[4:], nonce, secret)
 }

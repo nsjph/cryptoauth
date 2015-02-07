@@ -1,9 +1,13 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"github.com/nsjph/cryptoauth"
+	"io/ioutil"
 	"log"
 	"net"
+	"os"
 	"syscall"
 	"time"
 )
@@ -14,6 +18,29 @@ type Config struct {
 	PrivateKey string
 	IPv6       string
 	Password   string
+}
+
+func checkFatal(err error) {
+	if err != nil {
+		log.Fatalf("Error detected: %s\n", err)
+	}
+}
+
+func readConfigFile(path string) *Config {
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Fatal error %s\n", err)
+		os.Exit(1)
+	}
+
+	var config Config
+
+	err = json.Unmarshal(data, &config)
+	if err != nil {
+		log.Fatalf("Error reading config: %s\n", err)
+	}
+
+	return &config
 }
 
 func listen(s *cryptoauth.Server) {
@@ -44,39 +71,43 @@ func readLoop(s *cryptoauth.Server) {
 	for {
 		n, oobn, _, addr, err := s.Conn.ReadMsgUDP(payload, oob)
 		log.Printf("UDPServer.readLoop(): payload[%d], oob[%d]", n, oobn)
-		check(err)
+		if err != nil {
+			log.Fatalf("Error reading UDP message: %s", err.Error())
+		}
 
 		peerName := addr.String()
 
-		peer, present := s.Connections[peerName]
+		connection, present := s.Connections[peerName]
 		if present == false {
 			log.Printf("New peer from %s", peerName)
-			peer = &cryptoauth.Peer{
-				Addr:         addr,
-				Name:         peerName,
-				Local:        s,
-				AuthRequired: true,
-				Established:  false,
-				NextNonce:    0,
-				PublicKey:    [32]byte{},
-			}
-			s.Connections[peerName] = peer
+			//NewConnection(conn *net.UDPConn, laddr, raddr net.UDPAddr, isInitiator bool, local, remote *CryptoState) *Connection {
+			//func NewConnection(conn *net.UDPConn, raddr *net.UDPAddr, local, remote *CryptoState) *Connection {
+			connection = cryptoauth.NewConnection(s.Conn, addr, s.Keys, nil)
+			connection.SetPassword(s.Password)
+			s.Connections[peerName] = connection
 		}
 
-		peer.ParseMessage(payload[:n])
+		// Do something with the packet
+		connection.HandlePacket2(payload[:n])
 	}
 }
 
 func main() {
 	s := new(cryptoauth.Server)
-	s.Connections = make(map[string]*cryptoauth.Peer)
+	s.Connections = make(map[string]*cryptoauth.Connection)
 	s.KeyPair = new(cryptoauth.KeyPair)
 
 	config := readConfigFile("config.json")
 
-	s.KeyPair.PublicKey = cryptoauth.DecodePublicKeyString(config.PublicKey)
-	s.KeyPair.PrivateKey = cryptoauth.DecodePrivateKeyString(config.PrivateKey)
+	keys := &cryptoauth.KeyPair{
+		PublicKey:  *cryptoauth.DecodePublicKeyString(config.PublicKey),
+		PrivateKey: *cryptoauth.DecodePrivateKeyString(config.PrivateKey),
+	}
+
+	s.Keys = cryptoauth.NewCryptoState(keys, nil, false)
+
 	s.Listen = config.Bind
+	s.Password = config.Password
 
 	if len(config.Password) > 0 {
 		passwd := new(cryptoauth.Passwd)

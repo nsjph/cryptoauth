@@ -16,10 +16,9 @@ package cryptoauth
 
 import (
 	"net"
-	"sync"
 )
 
-// Need a type to hold local state
+// TODO: this needs cleaning up
 
 type Server struct {
 	KeyPair     *KeyPair
@@ -31,44 +30,8 @@ type Server struct {
 	Outgoing    chan []byte
 	Passwords   map[[32]byte]*Passwd
 	Password    string // for testing just one password at a time
-	Connections map[string]*Peer
-	Sessions    map[string]*Connection
+	Connections map[string]*Connection
 }
-
-type Peer struct {
-	sync.RWMutex
-	Name               string
-	Addr               *net.UDPAddr
-	PublicKey          [32]byte // peer's permanent public key
-	TempPublicKey      [32]byte // peer's temporary public key
-	LocalTempKeyPair   *KeyPair // local temporary keys
-	Local              *Server
-	NextNonce          uint32
-	Secret             *[32]byte // shared secret
-	PasswordHash       [32]byte  // static password hash for use in authentication
-	AuthRequired       bool
-	Established        bool
-	Initiator          bool
-	LastPacketReceived uint32
-}
-
-// Need a type to hold peer-side state
-
-// type Peer struct {
-// 	Addr               *net.UDPAddr // remote address
-// 	Conn               *net.UDPConn // local connection
-// 	Name               string
-// 	NextNonce          uint32
-// 	Secret             *[32]byte
-// 	PublicKey          [32]byte
-// 	TempKeyPair        *KeyPair // Our Temporary Keypair
-// 	TempPublicKey      [32]byte // peer temporary public key
-// 	PasswordHash       [32]byte // hashed version of password
-// 	Initiator          bool
-// 	Established        bool
-// 	AuthRequired       bool
-// 	LastPacketReceived uint32
-// }
 
 type ReplayProtection struct {
 	bits              uint64

@@ -15,10 +15,8 @@
 package cryptoauth
 
 import (
-	_ "bufio"
 	"crypto/rand"
 	"fmt"
-	"github.com/davecgh/go-spew/spew"
 	"io"
 	"log"
 	"net"
@@ -49,13 +47,11 @@ func NewConnection(conn *net.UDPConn, raddr *net.UDPAddr, local, remote *CryptoS
 	// TODO: isEstablished should default to false
 
 	if remote == nil {
-		kp := new(KeyPair)
-		remote = NewCryptoState(kp, false)
-		remote.perm = new(KeyPair)
-		remote.temp = new(KeyPair)
+		remote = NewCryptoState(new(KeyPair), nil, false)
 	}
 
 	if local == nil {
+		panic("local is nil, fixme")
 		return nil
 	}
 
@@ -71,24 +67,15 @@ func NewConnection(conn *net.UDPConn, raddr *net.UDPAddr, local, remote *CryptoS
 	return c
 }
 
-func (c *Connection) readPacket() ([]byte, error) {
-
-	return nil, nil
-}
-
 func (c *Connection) writePacket(p []byte) error {
-
-	//NewHandshake(stage uint32, challenge *Challenge, local *CryptoState, remote *CryptoState, passwordHash [32]byte) ([]byte, error) {
 
 	// Create a handshake packet to send back
 	if c.isEstablished == false {
-		//NewChallenge(lookup [7]byte, derivations uint16, additional uint16) (*Challenge, error) {
 		challenge, err := c.NewChallenge()
 		if err != nil {
 			panic(err)
 		}
-		log.Printf("creating a new handshake, current nonce is %d, password hash is %x", c.local.nextNonce, c.passwordHash)
-		handshake, err := NewHandshake(c.local.nextNonce, challenge, c.local, c.remote, c.passwordHash)
+		handshake, err := NewHandshake(c.local.nextNonce, challenge, c.local, c.remote, &c.passwordHash)
 		n, err := c.conn.WriteToUDP(handshake, c.raddr)
 		if err != nil {
 			return err
@@ -104,9 +91,6 @@ func (c *Connection) writePacket(p []byte) error {
 	} else {
 		debugHandshakeLog(fmt.Sprintf("writePacket: wrote [%d] bytes to %s", n, c.raddr.String()))
 	}
-
-	log.Print("writePacket")
-	spew.Dump(c.conn)
 
 	return nil
 }

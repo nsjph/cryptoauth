@@ -15,15 +15,40 @@
 package cryptoauth
 
 import (
-	_ "encoding/binary"
+	"encoding/binary"
 	_ "golang.org/x/crypto/nacl/box"
+	"log"
 )
+
+func (c *Connection) convertNonce(nonce uint32) [24]byte {
+
+	n := make([]byte, 8)
+	convertedNonce := [24]byte{}
+
+	switch c.local.isInitiator {
+	case true:
+		binary.LittleEndian.PutUint32(n[:4], nonce)
+	case false:
+		binary.LittleEndian.PutUint32(n[4:], nonce)
+	}
+
+	copy(convertedNonce[:], n)
+
+	log.Printf("convertedNonce: [%x]", convertedNonce)
+
+	return convertedNonce
+
+}
 
 func (c *Connection) DecodeData(nonce uint32, p []byte) ([]byte, error) {
 
-	panic("fixme")
+	convertedNonce := c.convertNonce(nonce)
 
-	return nil, nil
+	if decrypted, success := decryptDataPacket(p, &convertedNonce, &c.secret); success != true {
+		return nil, errAuthentication.setInfo("Decrypting data packet failed")
+	} else {
+		return decrypted, nil
+	}
 }
 
 // type DataPacket struct {
