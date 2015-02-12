@@ -17,6 +17,7 @@ package cryptoauth
 import (
 	"crypto/rand"
 	"fmt"
+	_ "github.com/looplab/fsm"
 	"io"
 	"log"
 	"net"
