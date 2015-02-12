@@ -1,7 +1,0 @@
-{
-  "ipv6": "fcdb:ab75:8dff:50ed:f7d9:3627:c8e8:ec78",
-  "publicKey": "pb1ugg08gt415nfqrdhtldpv81695rscq57r4um86fj440upksx0.k",
-  "privateKey": "affe464f278ec699badd824afd4cd976b78c9aa851f9083015dcab4c8af1ed2e",
-  "password": "thisismylongtestpassword12345",
-  "bind": "0.0.0.0:37703"
-}

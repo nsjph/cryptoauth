@@ -16,28 +16,87 @@ package cryptoauth
 
 import (
 	"github.com/looplab/fsm"
-	_ "log"
+	"log"
 )
 
 var (
 	clientStateMachine = 1
 	serverStateMachine = 2
-	clientEvents       = fsm.Events{
-		{Name: "Disconnected", Src: []string{"Established"}, Dst: "Disconnected"},
-		{Name: "SentHelloPacket", Src: []string{"Disconnected"}, Dst: "SentHelloPacket"},
-		{Name: "ReceivedKeyPacket", Src: []string{"SentHelloPacket"}, Dst: "ReceivedKeyPacket"},
-		{Name: "SentKeyPacket", Src: []string{"ReceivedKeyPacket"}, Dst: "SentKeyPacket"},
-		{Name: "ReceivedDataPacket", Src: []string{"SentKeyPacket"}, Dst: "ReceivedDataPacket"},
-		{Name: "Established", Src: []string{"ReceivedDataPacket"}, Dst: "Established"},
+	resetEvent         = fsm.EventDesc{
+		Name: "Reset",
+		Src:  []string{"Established", "HelloSend", "HelloReceive", "KeySend", "KeyReceive", "DataSend", "DataReceive"},
+		Dst:  "Reset"} // dont forget the key lower/higher scenario that triggers reset
+	helloSendEvent    = fsm.EventDesc{Name: "HelloSend", Src: []string{"Reset"}, Dst: "HelloSend"}
+	helloReceiveEvent = fsm.EventDesc{Name: "HelloReceive", Src: []string{"Reset", "Established", "KeySend", "HelloReceive"}, Dst: "HelloReceive"}
+	keySendEvent      = fsm.EventDesc{Name: "KeySend", Src: []string{"HelloReceive", "KeyReceive"}, Dst: "KeySend"}
+	keyReceiveEvent   = fsm.EventDesc{Name: "KeyReceive", Src: []string{"KeySend", "HelloSend"}, Dst: "KeyReceive"}
+	dataSendEvent     = fsm.EventDesc{Name: "DataSend", Src: []string{"KeyReceive", "DataReceive", "Established"}, Dst: "DataSend"}
+	dataReceiveEvent  = fsm.EventDesc{
+		Name: "DataReceive", Src: []string{"KeySend", "DataSend", "Established", "DataReceive"}, Dst: "DataReceive"}
+	establishedEvent = fsm.EventDesc{Name: "Established", Src: []string{"DataReceive"}, Dst: "Established"}
+	clientEvents     = fsm.Events{
+		resetEvent,
+		helloSendEvent,
+		keyReceiveEvent,
+		keySendEvent,
+		dataReceiveEvent,
+		establishedEvent,
 	}
 	serverEvents = fsm.Events{
-		{Name: "Disconnected", Src: []string{"Established"}, Dst: "Disconnected"},
-		{Name: "ReceivedHelloPacket", Src: []string{"Disconnected", "Established"}, Dst: "ReceivedHelloPacket"},
-		{Name: "SentKeyPacket", Src: []string{"ReceivedHelloPacket"}, Dst: "SentKeyPacket"},
-		{Name: "ReceivedKeyPacket", Src: []string{"SentKeyPacket"}, Dst: "ReceivedKeyPacket"},
-		{Name: "SentDataPacket", Src: []string{"ReceivedKeyPacket"}, Dst: "SentDataPacket"},
-		{Name: "ReceivedDataPacket", Src: []string{"SentDataPacket"}, Dst: "ReceivedDataPacket"},
-		{Name: "Established", Src: []string{"ReceivedDataPacket"}, Dst: "Established"},
+		resetEvent,
+		helloReceiveEvent,
+		keySendEvent,
+		keyReceiveEvent,
+		dataSendEvent,
+		dataReceiveEvent,
+		establishedEvent,
+	}
+	eventCallbacks = fsm.Callbacks{
+		"before_Reset": func(e *fsm.Event) {
+			log.Println("before_resetEvent")
+		},
+		"before_HelloSend": func(e *fsm.Event) {
+			log.Println("before_helloSendEvent")
+		},
+		"before_HelloReceive": func(e *fsm.Event) {
+			//validateHello
+		},
+		"before_KeySend": func(e *fsm.Event) {
+			log.Println("before_keySendEvent")
+		},
+		"before_KeyReceive": func(e *fsm.Event) {
+			log.Println("before_keyReceivedEvent")
+		},
+		"before_DataSend": func(e *fsm.Event) {
+			log.Println("before_dataSendEvent")
+		},
+		"before_DataReceive": func(e *fsm.Event) {
+			log.Println("before_dataReceiveEvent")
+		},
+		"before_Established": func(e *fsm.Event) {
+			log.Println("before_establishedEvent")
+		},
+		"enter_Reset": func(e *fsm.Event) {
+			log.Println("enter_resetEvent")
+		},
+		"enter_HelloReceive": func(e *fsm.Event) {
+			log.Println("enter_HelloReceive")
+		},
+		"enter_KeySend": func(e *fsm.Event) {
+			log.Println("enter_KeySend")
+		},
+		"enter_KeyReceive": func(e *fsm.Event) {
+			log.Println("enter_keyReceivedEvent")
+		},
+		"enter_DataSend": func(e *fsm.Event) {
+			log.Println("enter_dataSentEvent")
+		},
+		"enter_DataReceive": func(e *fsm.Event) {
+			log.Println("enter_dataReceivedEvent")
+		},
+		"enter_Established": func(e *fsm.Event) {
+			log.Println("enter_establishedEvent")
+		},
 	}
 )
 

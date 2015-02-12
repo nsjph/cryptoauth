@@ -17,7 +17,7 @@ package cryptoauth
 import (
 	"crypto/rand"
 	"fmt"
-	_ "github.com/looplab/fsm"
+	"github.com/looplab/fsm"
 	"io"
 	"log"
 	"net"
@@ -35,6 +35,7 @@ type Connection struct {
 	secret             [32]byte
 	password           string
 	passwordHash       [32]byte
+	state              *fsm.FSM
 }
 
 func NewConnection(conn *net.UDPConn, raddr *net.UDPAddr, local, remote *CryptoState) *Connection {
@@ -64,6 +65,30 @@ func NewConnection(conn *net.UDPConn, raddr *net.UDPAddr, local, remote *CryptoS
 		remote:        remote,
 		rand:          rand.Reader,
 	}
+
+	c.state = fsm.NewFSM("Reset", serverEvents, fsm.Callbacks{
+		"before_Reset":        func(e *fsm.Event) { log.Println("before_resetEvent") },
+		"enter_Reset":         func(e *fsm.Event) { log.Println("enter_resetEvent") },
+		"after_Reset":         func(e *fsm.Event) { log.Println("after_resetEvent") },
+		"before_HelloSend":    func(e *fsm.Event) { log.Println("before_helloSendEvent") },
+		"before_HelloReceive": func(e *fsm.Event) { c.validateHello(e) },
+		"enter_HelloReceive":  func(e *fsm.Event) { c.decodeHello(e) },
+		"after_HelloReceive":  func(e *fsm.Event) { log.Println("after_HelloReceive") },
+		"before_KeySend":      func(e *fsm.Event) { c.validateKey(e) },
+		"enter_KeySend":       func(e *fsm.Event) { log.Println("enter_KeySend") },
+		"after_KeySend":       func(e *fsm.Event) { log.Println("after_KeySend") },
+		"before_KeyReceive":   func(e *fsm.Event) { c.validateKey(e) },
+		"enter_KeyReceive":    func(e *fsm.Event) { log.Println("enter_keyReceivedEvent") },
+		"after_KeyReceive":    func(e *fsm.Event) { log.Println("after_keyReceivedEvent") },
+		"before_DataSend":     func(e *fsm.Event) { log.Println("before_dataSendEvent") },
+		"enter_DataSend":      func(e *fsm.Event) { log.Println("enter_dataSentEvent") },
+		"after_DataSend":      func(e *fsm.Event) { log.Println("after_dataSentEvent") },
+		"before_DataReceive":  func(e *fsm.Event) { log.Println("before_dataReceiveEvent") },
+		"enter_DataReceive":   func(e *fsm.Event) { log.Println("enter_dataReceivedEvent") },
+		"after_DataReceive":   func(e *fsm.Event) { log.Println("after_dataReceivedEvent") },
+		"before_Established":  func(e *fsm.Event) { log.Println("before_establishedEvent") },
+		"enter_Established":   func(e *fsm.Event) { log.Println("enter_establishedEvent") },
+	})
 
 	return c
 }

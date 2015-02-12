@@ -32,19 +32,19 @@ type Handshake struct {
 	Payload             []byte
 }
 
-func isKeyPacket(nonce uint32) bool {
-	if nonce == 2 || nonce == 3 {
-		return true
-	}
-	return false
-}
+// func isKeyPacket(nonce uint32) bool {
+// 	if nonce == 2 || nonce == 3 {
+// 		return true
+// 	}
+// 	return false
+// }
 
-func isHelloPacket(nonce uint32) bool {
-	if nonce == 1 {
-		return true
-	}
-	return false
-}
+// func isHelloPacket(nonce uint32) bool {
+// 	if nonce == 1 {
+// 		return true
+// 	}
+// 	return false
+// }
 
 func isHandshakePacket(nonce uint32) bool {
 	if nonce < 4 && nonce != math.MaxUint32 {
