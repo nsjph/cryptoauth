@@ -20,6 +20,22 @@ import (
 	"reflect"
 )
 
+func (c *Connection) CanSendHelloPacket(e *fsm.Event) {
+
+}
+
+func (c *Connection) NewHelloPacket(e *fsm.Event) {
+
+}
+
+func (c *Connection) ValidateHelloPacket(e *fsm.Event) {
+
+}
+
+func (c *Connection) DecodeHelloPacket(e *fsm.Event) {
+
+}
+
 func (c *Connection) validateHello(e *fsm.Event) {
 	log.Printf("Validate Hello event args are: %v", e.Args)
 

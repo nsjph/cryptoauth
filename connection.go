@@ -36,6 +36,8 @@ type Connection struct {
 	password           string
 	passwordHash       [32]byte
 	state              *fsm.FSM
+	//out                chan []byte
+
 }
 
 func NewConnection(conn *net.UDPConn, raddr *net.UDPAddr, local, remote *CryptoState) *Connection {
@@ -70,14 +72,16 @@ func NewConnection(conn *net.UDPConn, raddr *net.UDPAddr, local, remote *CryptoS
 		"before_Reset":        func(e *fsm.Event) { log.Println("before_resetEvent") },
 		"enter_Reset":         func(e *fsm.Event) { log.Println("enter_resetEvent") },
 		"after_Reset":         func(e *fsm.Event) { log.Println("after_resetEvent") },
-		"before_HelloSend":    func(e *fsm.Event) { log.Println("before_helloSendEvent") },
-		"before_HelloReceive": func(e *fsm.Event) { c.validateHello(e) },
-		"enter_HelloReceive":  func(e *fsm.Event) { c.decodeHello(e) },
-		"after_HelloReceive":  func(e *fsm.Event) { log.Println("after_HelloReceive") },
-		"before_KeySend":      func(e *fsm.Event) { c.validateKey(e) },
-		"enter_KeySend":       func(e *fsm.Event) { log.Println("enter_KeySend") },
+		"before_HelloSend":    func(e *fsm.Event) { c.CanSendHelloPacket(e) },
+		"enter_HelloSend":     func(e *fsm.Event) { c.NewHelloPacket(e) },
+		"after_HelloSend":     func(e *fsm.Event) { log.Println("after_HelloSend") },
+		"before_HelloReceive": func(e *fsm.Event) { c.ValidateHelloPacket(e) },
+		"enter_HelloReceive":  func(e *fsm.Event) { c.DecodeHelloPacket(e) },
+		"after_HelloReceive":  func(e *fsm.Event) { c.state.Event("KeySend") },
+		"before_KeySend":      func(e *fsm.Event) { c.CanSendKeyPacket(e) },
+		"enter_KeySend":       func(e *fsm.Event) { c.NewKeyPacket(e) },
 		"after_KeySend":       func(e *fsm.Event) { log.Println("after_KeySend") },
-		"before_KeyReceive":   func(e *fsm.Event) { c.validateKey(e) },
+		"before_KeyReceive":   func(e *fsm.Event) { c.ValidateKeyPacket(e) },
 		"enter_KeyReceive":    func(e *fsm.Event) { log.Println("enter_keyReceivedEvent") },
 		"after_KeyReceive":    func(e *fsm.Event) { log.Println("after_keyReceivedEvent") },
 		"before_DataSend":     func(e *fsm.Event) { log.Println("before_dataSendEvent") },
