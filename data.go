@@ -54,31 +54,24 @@ func convertNonce(nonce uint32, isInitiator bool) [24]byte {
 // 	}
 // }
 
-func (c *Connection) ValidateDataPacket(e *fsm.Event) {
+func (c *Connection) CanDecodeDataPacket() error {
 
-	log.Println("ValidateDataPacket")
-
-	// Check if we are able to decode a data packet yet...
-
-	// Prior to establishing a session, we need to determ
 	if c.isEstablished == false {
+		if c.local.temp == nil {
+			return errors.New("CanDecodeDataPacket: No local temp keypair, can't decode data packet")
+		} else if c.remote.temp == nil {
+			return errors.New("CanDecodeDataPacket: No remote temp public key, can't decode data packet")
+		}
 		log.Println("connection is not established")
 		if isEmpty(c.remote.temp.PublicKey) == true {
 			log.Println("remote temp public key is empty")
-			e.Cancel(errors.New("ValidateDataPacket: Unable to decrypt data packet without remote peer's temporary public key"))
-			return
+			return errors.New("CanDecodeDataPacket: No remote temp public key, can't decode data packet")
 		} else if isEmpty(c.local.temp.PrivateKey) == true {
 			log.Println("local temp privatekey is empty")
-			e.Cancel(errors.New("ValidateDataPacket: Unable to decrypt data packet without local temporary private key"))
-			return
+			return errors.New("CanDecodeDataPacket: No local temporary private key, can't decode data packet")
 		}
 	}
-
-	if len(e.Args) != 1 {
-		log.Println("length of args != 1")
-		e.Cancel(errors.New("ValidateDataPacket: No packet data supplied"))
-	}
-
+	return nil
 }
 
 func (c *Connection) DecodeDataPacket(e *fsm.Event) {
@@ -103,7 +96,7 @@ func (c *Connection) DecodeDataPacket(e *fsm.Event) {
 
 	//convertedNonce := c.convertNonce(nonce)
 
-	decrypted, success := decryptDataPacket(p, &convertedNonce, &c.secret)
+	decrypted, success := decryptDataPacket(p, nonce, c.local.isInitiator, &c.secret)
 	if success != true {
 		e.Cancel(errAuthentication.setInfo("Decrypting data packet failed"))
 		return

@@ -56,27 +56,6 @@ func isHelloPacket(nonce uint32) bool {
 	return false
 }
 
-// func getPacketType(nonce uint32) int {
-
-// 	if result := isDataPacket(nonce); result == true {
-// 		return dataPacketType
-// 	} else if result := isKeyPacket(nonce); result == true {
-// 		return keyPacketType
-// 	} else if result := isHelloPacket(nonce); result == true {
-// 		return helloPacketType
-// 	} else {
-// 		log.Fatalf("getPacketType: Don't know what packet type is with nonce [%d]", nonce)
-// 	}
-
-// 	return -1
-
-// }
-
-// Migrating HandlePacket2 to statemachine
-//
-
-// Former handlepacket2 is now handlepacket
-
 func (c *Connection) HandlePacket(p []byte) (data []byte, err error) {
 
 	if len(p) < 20 {
@@ -86,27 +65,33 @@ func (c *Connection) HandlePacket(p []byte) (data []byte, err error) {
 	nonce := binary.BigEndian.Uint32(p[:4])
 
 	if isDataPacket(nonce) == true {
-		log.Printf("Received data packet with nonce %d", nonce)
-
-		if c.Established == true {
-			// Don't trigger any state stuff, just decode it normally
-		} else {
-			if err = c.state.Event("DataReceive", p); err != nil {
-				log.Println(err)
+		log.Printf("Received data packet: %d", nonce)
+		err := c.CanDecodeDataPacket()
+		if err != nil {
+			return nil, err
+		}
+		if c.isEstablished == true {
+			decrypted, success := decryptDataPacket(p[4:], nonce, c.local.isInitiator, &c.secret)
+			if success == false {
+				return nil, errAuthentication.setInfo("Unable to decrypt data packet")
 			} else {
-				log.Println("Successfully decoded data packet")
-				data = <-c.Incoming
-				log.Printf("Read %d from incoming channel", len(data))
+				return decrypted, nil
+			}
+		} else {
+			log.Printf("Session isn't established")
+			// If we successfully decrypt this packet, the handshake is complete.
+			c.secret = computeSharedSecret(&c.local.temp.PrivateKey, &c.remote.temp.PublicKey)
+			c.local.nextNonce++
+			decrypted, success := decryptDataPacket(p[4:], nonce, c.local.isInitiator, &c.secret)
+			if success == true {
+				c.state.Event("Established")
+				return decrypted, nil
+			} else {
+				return nil, errAuthentication.setInfo("Unable to decrypt data packet")
 			}
 		}
-
 	} else {
 		switch nonce {
-		// case dataPacketType:
-		// 	log.Printf("Received data packet type: %d", nonce)
-		// 	if err = c.state.Event("DataReceive", p); err != nil {
-		// 		log.Print("Error setting state to data received: ", err)
-		// 	}
 		case keyPacketType:
 			log.Printf("Received key packet type: %d", nonce)
 			if err = c.state.Event("KeyReceive", nonce, p); err != nil {
@@ -127,16 +112,6 @@ func (c *Connection) HandlePacket(p []byte) (data []byte, err error) {
 		case connectPacketType:
 			log.Printf("Received connect packet type: %d", nonce)
 		default:
-			// if isDataPacket(nonce) == true {
-			// 	log.Printf("Received data packet with nonce %d", nonce)
-			// 	if err = c.state.Event("DataReceive", p); err != nil {
-			// 		log.Println(err)
-			// 	} else {
-			// 		log.Println("Successfully decoded data packet")
-			// 		data <- c.Incoming
-			// 		log.Printf("Read ")
-			// 	}
-			// } else {
 			panic("fuck what do i do now?")
 		}
 	}
@@ -263,4 +238,11 @@ func (c *Connection) resetSession() {
 	c.remote = NewCryptoState(new(KeyPair), nil, c.local.isInitiator)
 	c.isEstablished = false
 
+}
+
+func (c *Connection) HandshakeComplete(e *fsm.Event) {
+	log.Println("HandshakeComplete")
+	c.isEstablished = true
+	c.local.temp = nil
+	c.remote.temp = nil
 }
