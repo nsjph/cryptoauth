@@ -42,20 +42,6 @@ func isDataPacket(nonce uint32) bool {
 	return false
 }
 
-func isKeyPacket(nonce uint32) bool {
-	if nonce == 2 || nonce == 3 {
-		return true
-	}
-	return false
-}
-
-func isHelloPacket(nonce uint32) bool {
-	if nonce == 1 {
-		return true
-	}
-	return false
-}
-
 func (c *Connection) HandlePacket(p []byte) (data []byte, err error) {
 
 	if len(p) < 20 {
@@ -117,109 +103,6 @@ func (c *Connection) HandlePacket(p []byte) (data []byte, err error) {
 	}
 	return nil, nil
 }
-
-// func (c *Connection) HandlePacketOld(p []byte) (err error) {
-// 	nonce := binary.BigEndian.Uint32(p[:4])
-
-// 	log.Printf("received packet with nonce: %d", nonce)
-// 	log.Println(c.state.Current())
-// 	if c.isEstablished == false {
-// 		if isDataPacket(nonce) == true {
-
-// 			if err = c.state.Event("DataReceive"); err != nil {
-// 				log.Println(err)
-// 			}
-
-// 			// if we dont know anything about the remote peer's temp keys,
-// 			// then we might've restarted and received a packet from previously
-// 			// valid session. We can't decrypt it without knowing their temp keys,
-// 			// so let's ignore it...
-
-// 			if c.remote.temp == nil {
-// 				c.resetSession()
-// 				return errUndeliverable
-// 			}
-
-// 			c.secret = computeSharedSecret(&c.local.temp.PrivateKey, &c.remote.temp.PublicKey)
-// 			c.local.nextNonce++
-// 			if _, err = c.DecodeData(nonce, p); err != nil {
-// 				debugHandshakeLogWithError("Error decoding data message", err)
-// 				return errUndeliverable
-// 			} else {
-// 				if err = c.state.Event("Established"); err != nil {
-// 					log.Println(err)
-// 				}
-// 				debugHandshakeLog("Handshake Complete!")
-// 				c.remote.temp = nil
-// 				c.local.temp = nil
-// 				c.isEstablished = true
-// 				return nil
-// 			}
-
-// 			panic("beep beep ritchie")
-// 		}
-
-// 		debugHandshakeLog("decoding handshake. our next nonce is")
-
-// 		if err = c.state.Event("HelloReceive", nonce, p); err != nil {
-// 			log.Println(err)
-// 		}
-
-// 		if err = c.DecodeHandshake2(nonce, p); err != nil {
-// 			debugHandshakeLogWithError("HandlePacket: error decoding handshake", err)
-// 			return err
-// 		} else {
-// 			if err = c.state.Event("KeySend"); err != nil {
-// 				log.Println(err)
-// 			}
-// 			debugHandshakeLog(fmt.Sprintf("HandlePacket: successfully decoded handshake [%d]", c.local.nextNonce))
-// 			c.writePacket([]byte{})
-// 			return nil
-// 		}
-
-// 		panic("decrypt handshake here")
-// 	} else if isDataPacket(nonce) == true {
-
-// 		if err = c.state.Event("DataReceive", nonce, p); err != nil {
-// 			log.Println(err)
-// 		}
-
-// 		if _, err = c.DecodeData(nonce, p); err != nil {
-// 			debugHandshakeLogWithError("Error decoding data message", err)
-// 			return errUndeliverable
-// 		} else {
-// 			debugHandshakeLog("Decrypted message successfully")
-// 			return nil
-// 		}
-// 		panic("decrypt message here")
-// 	} else if isHelloPacket(nonce) == true {
-// 		if err = c.state.Event("HelloReceive", nonce, p); err != nil {
-// 			log.Println(err)
-// 		}
-// 		debugHandshakeLog("Received hello packet for established session")
-// 		if err = c.DecodeHandshake2(nonce, p); err != nil {
-// 			debugHandshakeLogWithError("HandlePacket: error decoding handshake", err)
-// 			return err
-// 		} else {
-
-// 			debugHandshakeLog(fmt.Sprintf("HandlePacket: successfully decoded handshake [%d]", c.local.nextNonce))
-// 			if err = c.state.Event("KeySend"); err != nil {
-// 				log.Println(err)
-// 			}
-// 			c.writePacket([]byte{})
-// 			return nil
-// 		}
-// 		panic("decrypt handshake here")
-// 	} else {
-// 		return errUndeliverable
-// 	}
-
-// 	log.Fatalf("fell through, nonce: %u", nonce)
-
-// 	panic("fell through")
-
-// 	return errUnknown
-// }
 
 func (c *Connection) resetConnection(e *fsm.Event) {
 	c.resetSession()
