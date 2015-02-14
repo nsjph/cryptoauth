@@ -69,8 +69,8 @@ func readLoop(s *cryptoauth.Server) {
 	oob := make([]byte, 4096)     // TODO: optimize
 
 	for {
-		n, oobn, _, addr, err := s.Conn.ReadMsgUDP(payload, oob)
-		log.Printf("UDPServer.readLoop(): payload[%d], oob[%d]", n, oobn)
+		n, _, _, addr, err := s.Conn.ReadMsgUDP(payload, oob)
+		//log.Printf("UDPServer.readLoop(): payload[%d], oob[%d]", n, oobn)
 		if err != nil {
 			log.Fatalf("Error reading UDP message: %s", err.Error())
 		}
@@ -88,7 +88,7 @@ func readLoop(s *cryptoauth.Server) {
 		}
 
 		// Do something with the packet
-		connection.HandlePacket2(payload[:n])
+		connection.HandlePacket(payload[:n])
 	}
 }
 

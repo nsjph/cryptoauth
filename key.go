@@ -15,9 +15,86 @@
 package cryptoauth
 
 import (
+	"bytes"
+	"encoding/binary"
+	"errors"
 	"github.com/looplab/fsm"
+	"golang.org/x/crypto/nacl/box"
 	"log"
 )
+
+var (
+	errKeySendDuringEstablished = errors.New("Can't send key packet during established session")
+)
+
+func (c *Connection) CanSendKeyPacket(e *fsm.Event) {
+	log.Printf("CanSendKeyPacket")
+
+	if c.isEstablished == true {
+		e.Cancel(errKeySendDuringEstablished)
+	}
+}
+
+func (c *Connection) NewKeyPacket(e *fsm.Event) {
+	log.Printf("NewKeyPacket")
+
+	var err error
+	var secret [32]byte
+
+	challenge, err := c.NewChallenge()
+	if err != nil {
+		e.Cancel(err)
+		return
+	}
+
+	h := &Handshake{
+		Stage:     c.local.nextNonce,
+		PublicKey: c.local.perm.PublicKey,
+	}
+
+	if h.Nonce, err = newNonce(); err != nil {
+		e.Cancel(err)
+		return
+	}
+
+	secret = computeSharedSecret(&c.local.perm.PrivateKey, &c.remote.temp.PublicKey)
+
+	// Build the packet
+	buf := new(bytes.Buffer)
+	binary.Write(buf, binary.BigEndian, h.Stage)
+	binary.Write(buf, binary.BigEndian, challenge.Type)
+	binary.Write(buf, binary.BigEndian, challenge.Lookup)
+	binary.Write(buf, binary.BigEndian, challenge.Derivations)
+	binary.Write(buf, binary.BigEndian, challenge.Additional)
+	binary.Write(buf, binary.BigEndian, h.Nonce)
+	binary.Write(buf, binary.BigEndian, h.PublicKey)
+
+	var out []byte
+
+	if c.local.temp == nil {
+		c.local.temp, _ = createTempKeyPair()
+	}
+
+	encryptedTempPubKey := box.SealAfterPrecomputation(out, c.local.temp.PublicKey[:], &h.Nonce, &secret)
+
+	if debugHandshake {
+		log.Printf("encryptedTempPubKey:\n\tnonce [%x]\n\tsecret [%x]\n\tmyTempPubKey [%x]", h.Nonce, secret, c.local.temp.PublicKey)
+	}
+
+	binary.Write(buf, binary.BigEndian, encryptedTempPubKey)
+
+	//handshake, err := NewHandshake(c.local.nextNonce, challenge, c.local, c.remote, &c.passwordHash)
+	n, err := c.conn.WriteToUDP(buf.Bytes(), c.raddr)
+	if err != nil {
+		e.Cancel(err)
+		return
+	}
+	log.Printf("wrote %d to %s", n, c.raddr.String())
+}
+
+func (c *Connection) ValidateKeyPacket(e *fsm.Event) {
+	log.Printf("ValidateKeyPacket")
+}
 
 func (c *Connection) validateKey(e *fsm.Event) {
 	log.Printf("Validate Key: event args are: %v", e.Args)
