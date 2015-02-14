@@ -31,13 +31,11 @@ func convertNonce(nonce uint32, isInitiator bool) [24]byte {
 	case false:
 		binary.LittleEndian.PutUint32(n[4:], nonce)
 	}
-
 	copy(convertedNonce[:], n)
-
-	log.Printf("convertedNonce: [%x]", convertedNonce)
-
+	if debugHandshake == true {
+		log.Printf("convertedNonce: [%x]", convertedNonce)
+	}
 	return convertedNonce
-
 }
 
 func (c *Connection) CanDecodeDataPacket() error {
