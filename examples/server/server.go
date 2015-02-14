@@ -60,10 +60,11 @@ func listen(s *cryptoauth.Server) {
 	checkFatal(err)
 
 	log.Println("Going into read loop")
-	go readLoop(s)
+	go readUDPPacket(s)
+	//go readDataPacket(s)
 }
 
-func readLoop(s *cryptoauth.Server) {
+func readUDPPacket(s *cryptoauth.Server) {
 	defer s.Conn.Close()
 	payload := make([]byte, 8192) // TODO: optimize
 	oob := make([]byte, 4096)     // TODO: optimize
@@ -88,7 +89,23 @@ func readLoop(s *cryptoauth.Server) {
 		}
 
 		// Do something with the packet
-		connection.HandlePacket(payload[:n])
+		_, err = connection.HandlePacket(payload[:n])
+		if err != nil {
+			log.Println(err)
+		}
+	}
+}
+
+func readDataPacket(s *cryptoauth.Server) {
+	for {
+		for _, v := range s.Connections {
+			log.Println(v)
+			// if v.isEstablished == true {
+			// 	log.Println("hi")
+			// } else {
+			// 	log.Println("%s is not established", k)
+			// }
+		}
 	}
 }
 

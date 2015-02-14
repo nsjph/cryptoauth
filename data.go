@@ -16,16 +16,19 @@ package cryptoauth
 
 import (
 	"encoding/binary"
+	"errors"
+	"github.com/looplab/fsm"
 	_ "golang.org/x/crypto/nacl/box"
 	"log"
+	"reflect"
 )
 
-func (c *Connection) convertNonce(nonce uint32) [24]byte {
+func convertNonce(nonce uint32, isInitiator bool) [24]byte {
 
 	n := make([]byte, 8)
 	convertedNonce := [24]byte{}
 
-	switch c.local.isInitiator {
+	switch isInitiator {
 	case true:
 		binary.LittleEndian.PutUint32(n[:4], nonce)
 	case false:
@@ -40,15 +43,84 @@ func (c *Connection) convertNonce(nonce uint32) [24]byte {
 
 }
 
-func (c *Connection) DecodeData(nonce uint32, p []byte) ([]byte, error) {
+// func (c *Connection) DecodeData(nonce uint32, p []byte) ([]byte, error) {
 
-	convertedNonce := c.convertNonce(nonce)
+// 	convertedNonce := c.convertNonce(nonce)
 
-	if decrypted, success := decryptDataPacket(p, &convertedNonce, &c.secret); success != true {
-		return nil, errAuthentication.setInfo("Decrypting data packet failed")
-	} else {
-		return decrypted, nil
+// 	if decrypted, success := decryptDataPacket(p, &convertedNonce, &c.secret); success != true {
+// 		return nil, errAuthentication.setInfo("Decrypting data packet failed")
+// 	} else {
+// 		return decrypted, nil
+// 	}
+// }
+
+func (c *Connection) ValidateDataPacket(e *fsm.Event) {
+
+	log.Println("ValidateDataPacket")
+
+	// Check if we are able to decode a data packet yet...
+
+	// Prior to establishing a session, we need to determ
+	if c.isEstablished == false {
+		log.Println("connection is not established")
+		if isEmpty(c.remote.temp.PublicKey) == true {
+			log.Println("remote temp public key is empty")
+			e.Cancel(errors.New("ValidateDataPacket: Unable to decrypt data packet without remote peer's temporary public key"))
+			return
+		} else if isEmpty(c.local.temp.PrivateKey) == true {
+			log.Println("local temp privatekey is empty")
+			e.Cancel(errors.New("ValidateDataPacket: Unable to decrypt data packet without local temporary private key"))
+			return
+		}
 	}
+
+	if len(e.Args) != 1 {
+		log.Println("length of args != 1")
+		e.Cancel(errors.New("ValidateDataPacket: No packet data supplied"))
+	}
+
+}
+
+func (c *Connection) DecodeDataPacket(e *fsm.Event) {
+
+	log.Println("DecodeDataPacket")
+
+	if c.isEstablished == false {
+		log.Printf("Received data packet for established session. Resetting")
+		c.secret = computeSharedSecret(&c.local.temp.PrivateKey, &c.remote.temp.PublicKey)
+		c.local.nextNonce++
+	}
+
+	log.Printf("DecodeDataPacket:\n\tsecret [%x]", c.secret)
+
+	v := reflect.ValueOf(e.Args[0])
+	p := v.Bytes()
+
+	// TODO: This is already done in cryptoauth.HandlePacket, so we're
+	// duplicating effort here. Figure out how to get a uint32 out of an interface{}
+	// and use fsm.Event.Args to retrieve the existing nonce from HandlePacket instead
+	nonce := binary.BigEndian.Uint32(p[:4])
+
+	//convertedNonce := c.convertNonce(nonce)
+
+	decrypted, success := decryptDataPacket(p, &convertedNonce, &c.secret)
+	if success != true {
+		e.Cancel(errAuthentication.setInfo("Decrypting data packet failed"))
+		return
+	} else {
+		log.Println("decrypted data packet ok")
+	}
+
+	if c.isEstablished == false {
+		c.isEstablished = true
+		c.local.temp = nil
+		c.remote.temp = nil
+	}
+
+	log.Printf("DecodeDataPacket: length of decrypted bytes is %d", len(decrypted))
+
+	c.Incoming <- decrypted
+
 }
 
 // type DataPacket struct {

@@ -36,8 +36,8 @@ type Connection struct {
 	password           string
 	passwordHash       [32]byte
 	state              *fsm.FSM
-	//out                chan []byte
-
+	Incoming           chan []byte // Buffered channel to store decrypted data packets
+	Outbound           chan []byte
 }
 
 func NewConnection(conn *net.UDPConn, raddr *net.UDPAddr, local, remote *CryptoState) *Connection {
@@ -66,24 +66,28 @@ func NewConnection(conn *net.UDPConn, raddr *net.UDPAddr, local, remote *CryptoS
 		local:         local,
 		remote:        remote,
 		rand:          rand.Reader,
+		Incoming:      make(chan []byte, 16),
 	}
 
-	c.state = fsm.NewFSM("Reset", serverEvents, fsm.Callbacks{
-		"before_HelloSend":    func(e *fsm.Event) { c.CanSendHelloPacket(e) },
-		"enter_HelloSend":     func(e *fsm.Event) { c.NewHelloPacket(e) },
-		"before_HelloReceive": func(e *fsm.Event) { c.ValidateHelloPacket(e) },
-		"enter_HelloReceive":  func(e *fsm.Event) { c.DecodeHelloPacket(e) },
-		"before_KeySend":      func(e *fsm.Event) { c.CanSendKeyPacket(e) },
-		"enter_KeySend":       func(e *fsm.Event) { c.NewKeyPacket(e) },
-		"before_KeyReceive":   func(e *fsm.Event) { c.ValidateKeyPacket(e) },
-		"enter_KeyReceive":    func(e *fsm.Event) { log.Println("enter_keyReceivedEvent") },
-		"before_DataSend":     func(e *fsm.Event) { log.Println("before_dataSendEvent") },
-		"enter_DataSend":      func(e *fsm.Event) { log.Println("enter_dataSentEvent") },
-		"after_DataSend":      func(e *fsm.Event) { log.Println("after_dataSentEvent") },
-		"before_DataReceive":  func(e *fsm.Event) { log.Println("before_dataReceiveEvent") },
-		"enter_DataReceive":   func(e *fsm.Event) { log.Println("enter_dataReceivedEvent") },
-		"after_DataReceive":   func(e *fsm.Event) { log.Println("after_dataReceivedEvent") },
-	})
+	c.state = fsm.NewFSM("Reset", serverEvents, c.serverEventCallbacks())
+	// 	fsm.Callbacks{
+	// 	"enter_Reset":         func(e *fsm.Event) { c.CanSendHelloPacket(e) },
+	// 	"before_HelloSend":    func(e *fsm.Event) { c.CanSendHelloPacket(e) },
+	// 	"enter_HelloSend":     func(e *fsm.Event) { c.NewHelloPacket(e) },
+	// 	"before_HelloReceive": func(e *fsm.Event) { c.ValidateHelloPacket(e) },
+	// 	"enter_HelloReceive":  func(e *fsm.Event) { c.DecodeHelloPacket(e) },
+	// 	"before_KeySend":      func(e *fsm.Event) { c.CanSendKeyPacket(e) },
+	// 	"enter_KeySend":       func(e *fsm.Event) { c.NewKeyPacket(e) },
+	// 	"before_KeyReceive":   func(e *fsm.Event) { c.ValidateKeyPacket(e) },
+	// 	"enter_KeyReceive":    func(e *fsm.Event) { log.Println("enter_keyReceivedEvent") },
+	// 	"before_DataSend":     func(e *fsm.Event) { log.Println("before_dataSendEvent") },
+	// 	"enter_DataSend":      func(e *fsm.Event) { log.Println("enter_dataSentEvent") },
+	// 	"after_DataSend":      func(e *fsm.Event) { log.Println("after_dataSentEvent") },
+	// 	"before_DataReceive":  func(e *fsm.Event) { c.ValidateDataPacket(e) },
+	// 	"enter_DataReceive":   func(e *fsm.Event) { c.DecodeDataPacket(e) },
+	// 	"after_DataReceive":   func(e *fsm.Event) { log.Println("after_dataReceivedEvent") },
+	// 	//"enter_Established":   func(e *fsm.Event) { c.Established(e) },
+	// })
 
 	return c
 }

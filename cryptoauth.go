@@ -17,7 +17,6 @@ package cryptoauth
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	_ "github.com/davecgh/go-spew/spew"
 	"github.com/looplab/fsm"
 	"log"
@@ -78,51 +77,70 @@ func isHelloPacket(nonce uint32) bool {
 
 // Former handlepacket2 is now handlepacket
 
-func (c *Connection) HandlePacket(p []byte) (err error) {
+func (c *Connection) HandlePacket(p []byte) (data []byte, err error) {
 
 	if len(p) < 20 {
-		return errUndersizeMessage
+		return nil, errUndersizeMessage
 	}
 
 	nonce := binary.BigEndian.Uint32(p[:4])
 
-	switch nonce {
+	if isDataPacket(nonce) == true {
+		log.Printf("Received data packet with nonce %d", nonce)
 
-	case dataPacketType:
-		log.Printf("Received data packet type: %d", nonce)
-		if err = c.state.Event("DataReceive", nonce, p); err != nil {
-			log.Print("Error setting state to data received: ", err)
-		}
-	case keyPacketType:
-		log.Printf("Received key packet type: %d", nonce)
-		if err = c.state.Event("KeyReceive", nonce, p); err != nil {
-			log.Print("Error setting state to key received: ", err)
-		}
-	case helloPacketType:
-		log.Printf("Received hello packet type: %d", nonce)
-		if err = c.state.Event("HelloReceive", p); err != nil {
-			log.Print("Error setting state to hello received: ", err)
+		if c.Established == true {
+			// Don't trigger any state stuff, just decode it normally
 		} else {
-			if err = c.state.Event("KeySend"); err != nil {
-				log.Print("Error sending key: ", err)
-				return err
-			} else {
-				log.Println("Successfully sent key")
-			}
-		}
-	case connectPacketType:
-		log.Printf("Received connect packet type: %d", nonce)
-	default:
-		if isDataPacket(nonce) == true {
-			log.Printf("Received data packet with nonce %d", nonce)
-			if err = c.state.Event("DataReceive"); err != nil {
+			if err = c.state.Event("DataReceive", p); err != nil {
 				log.Println(err)
+			} else {
+				log.Println("Successfully decoded data packet")
+				data = <-c.Incoming
+				log.Printf("Read %d from incoming channel", len(data))
 			}
-		} else {
+		}
+
+	} else {
+		switch nonce {
+		// case dataPacketType:
+		// 	log.Printf("Received data packet type: %d", nonce)
+		// 	if err = c.state.Event("DataReceive", p); err != nil {
+		// 		log.Print("Error setting state to data received: ", err)
+		// 	}
+		case keyPacketType:
+			log.Printf("Received key packet type: %d", nonce)
+			if err = c.state.Event("KeyReceive", nonce, p); err != nil {
+				log.Print("Error setting state to key received: ", err)
+			}
+		case helloPacketType:
+			log.Printf("Received hello packet type: %d", nonce)
+			if err = c.state.Event("HelloReceive", p); err != nil {
+				log.Print("Error setting state to hello received: ", err)
+			} else {
+				if err = c.state.Event("KeySend"); err != nil {
+					log.Print("Error sending key: ", err)
+					return nil, err
+				} else {
+					log.Println("Successfully sent key")
+				}
+			}
+		case connectPacketType:
+			log.Printf("Received connect packet type: %d", nonce)
+		default:
+			// if isDataPacket(nonce) == true {
+			// 	log.Printf("Received data packet with nonce %d", nonce)
+			// 	if err = c.state.Event("DataReceive", p); err != nil {
+			// 		log.Println(err)
+			// 	} else {
+			// 		log.Println("Successfully decoded data packet")
+			// 		data <- c.Incoming
+			// 		log.Printf("Read ")
+			// 	}
+			// } else {
 			panic("fuck what do i do now?")
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // func (c *Connection) HandlePacketOld(p []byte) (err error) {
