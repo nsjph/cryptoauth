@@ -133,7 +133,7 @@ func keyToBase32(key [32]uint8) string {
 	return fmt.Sprintf("%s.k", Base32Encode(key[:])[:52])
 }
 
-func DecodePublicKeyString(pubKeyString string) *[32]byte {
+func DecodePublicKeyString(pubKeyString string) [32]byte {
 
 	pubkey, err := Base32Decode([]byte(pubKeyString[:52]))
 	checkFatal(err)
@@ -146,18 +146,25 @@ func DecodePublicKeyString(pubKeyString string) *[32]byte {
 		log.Printf("DecodePublicKeyString:\n\tstring [%s] -> hex [%x]\n", pubKeyString, publicKey)
 	}
 
-	return &publicKey
+	return publicKey
 }
 
-func DecodePrivateKeyString(privateKeyString string) *[32]byte {
+func DecodePrivateKeyString(privateKeyString string) [32]byte {
 	var privateKey [32]byte
 	_, err := hex.Decode(privateKey[:], []byte(privateKeyString))
 	checkFatal(err)
 
-	return &privateKey
+	return privateKey
 }
 
-func hashPublicKey(publicKey [32]byte) []byte {
+func HashPublicKeyString(pk string) []byte {
+	publicKey := []byte(pk)
+	firstHash := sha512.Sum512(publicKey[:])
+	secondHash := sha512.Sum512(firstHash[:])
+	return secondHash[0:16]
+}
+
+func HashPublicKey(publicKey [32]byte) []byte {
 	firstHash := sha512.Sum512(publicKey[:])
 	secondHash := sha512.Sum512(firstHash[:])
 	return secondHash[0:16]
@@ -168,7 +175,7 @@ func HashPassword(password []byte) (passwordHash [32]byte) {
 }
 
 func isValidIPv6PublicKey(k [32]byte) bool {
-	h := hashPublicKey(k)
+	h := HashPublicKey(k)
 	ip := net.IP.To16(h[:])
 
 	if ip[0] == 0xFC {
@@ -187,24 +194,24 @@ func isValidIPv6Key(k []byte) bool {
 	return false
 }
 
-func NewIdentityKeys() (*IdentityKeyPair, error) {
+func NewIdentity() (*Identity, error) {
 
 	publicKey, privateKey, err := box.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, err
 	}
 
-	ipv6 := hashPublicKey(*publicKey)
+	ipv6 := HashPublicKey(*publicKey)
 
 	for isValidIPv6Key(ipv6) != true {
 		publicKey, privateKey, err = box.GenerateKey(rand.Reader)
 		if err != nil {
 			return nil, err
 		}
-		ipv6 = hashPublicKey(*publicKey)
+		ipv6 = HashPublicKey(*publicKey)
 	}
 
-	return &IdentityKeyPair{publicKey, privateKey, ipv6}, nil
+	return &Identity{&KeyPair{*publicKey, *privateKey}, ipv6}, nil
 }
 
 func NewCryptoState(perm, temp *KeyPair, initiator bool) *CryptoState {

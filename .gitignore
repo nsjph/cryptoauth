@@ -4,7 +4,9 @@
 *.so
 
 examples/server/server
-
+examples/server/config.json
+examples/client/client
+examples/client/config.json
 # Folders
 _obj
 _test

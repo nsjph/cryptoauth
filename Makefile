@@ -48,6 +48,7 @@ vendor_get: vendor_clean
 	github.com/davecgh/go-spew/spew \
 	golang.org/x/crypto/curve25519 \
 	golang.org/x/crypto/nacl/box \
+	github.com/looplab/fsm
 
 vendor_update: vendor_get
 	rm -rf `find ./_vendor/src -type d -name .git` \

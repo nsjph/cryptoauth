@@ -20,17 +20,22 @@ import (
 
 // TODO: this needs cleaning up
 
-type Server struct {
-	KeyPair     *KeyPair
-	IPv6        net.IP
-	Listen      string
+type Node struct {
+	Identity    *Identity
+	Bind        string
 	Conn        *net.UDPConn
-	Keys        *CryptoState
-	Incoming    chan []byte
-	Outgoing    chan []byte
-	Passwords   map[[32]byte]*Passwd
-	Password    string // for testing just one password at a time
+	Servers     []*Credential // remote servers
+	Credentials []*Credential // credentials for incoming clients
+	Password    string        // for testing just one password at a time
 	Connections map[string]*Connection
+}
+
+type Credential struct {
+	Addr      *net.Addr // optional for incoming peers
+	Username  string    // optional
+	Password  string    `json:"password"`
+	Hashed    [32]byte
+	PublicKey string `json:"publicKey"` // not required for incoming peers
 }
 
 type ReplayProtection struct {
@@ -41,10 +46,11 @@ type ReplayProtection struct {
 	packetsOutOfRange uint32
 }
 
-type IdentityKeyPair struct {
-	PublicKey  *[32]byte
-	PrivateKey *[32]byte
-	IPv6       net.IP
+type Identity struct {
+	Keys *KeyPair
+	IPv6 net.IP
+	// PublicKey  *[32]byte
+	// PrivateKey *[32]byte
 }
 
 // Neet a type to hold passwords

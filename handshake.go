@@ -15,10 +15,9 @@
 package cryptoauth
 
 type Handshake struct {
-	Stage               uint32     // 4 bytes (4)
-	Challenge           *Challenge // 12 bytes (16)
-	Nonce               [24]byte   // 24 bytes (40)
-	PublicKey           [32]byte   // 32 bytes (72)
+	Stage               uint32
+	Challenge           *Challenge
+	Nonce               [24]byte
+	PublicKey           [32]byte
 	EncryptedTempPubKey [32]byte
-	Payload             []byte
 }

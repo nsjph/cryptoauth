@@ -43,9 +43,9 @@ func readConfigFile(path string) *Config {
 	return &config
 }
 
-func listen(s *cryptoauth.Server) {
+func listen(s *cryptoauth.Node) {
 
-	localAddr, err := net.ResolveUDPAddr("udp4", s.Listen)
+	localAddr, err := net.ResolveUDPAddr("udp4", s.Bind)
 	checkFatal(err)
 
 	s.Conn, err = net.ListenUDP("udp4", localAddr)
@@ -64,7 +64,7 @@ func listen(s *cryptoauth.Server) {
 	//go readDataPacket(s)
 }
 
-func readUDPPacket(s *cryptoauth.Server) {
+func readUDPPacket(s *cryptoauth.Node) {
 	defer s.Conn.Close()
 	payload := make([]byte, 8192) // TODO: optimize
 	oob := make([]byte, 4096)     // TODO: optimize
@@ -83,7 +83,8 @@ func readUDPPacket(s *cryptoauth.Server) {
 			log.Printf("New peer from %s", peerName)
 			//NewConnection(conn *net.UDPConn, laddr, raddr net.UDPAddr, isInitiator bool, local, remote *CryptoState) *Connection {
 			//func NewConnection(conn *net.UDPConn, raddr *net.UDPAddr, local, remote *CryptoState) *Connection {
-			connection = cryptoauth.NewConnection(s.Conn, addr, s.Keys, nil)
+			cryptostate := cryptoauth.NewCryptoState(s.Identity.Keys, nil, false)
+			connection = cryptoauth.NewConnection(s.Conn, addr, cryptostate, nil)
 			connection.SetPassword(s.Password)
 			s.Connections[peerName] = connection
 		}
@@ -96,7 +97,7 @@ func readUDPPacket(s *cryptoauth.Server) {
 	}
 }
 
-func readDataPacket(s *cryptoauth.Server) {
+func readDataPacket(s *cryptoauth.Node) {
 	for {
 		for _, v := range s.Connections {
 			log.Println(v)
@@ -110,34 +111,38 @@ func readDataPacket(s *cryptoauth.Server) {
 }
 
 func main() {
-	s := new(cryptoauth.Server)
-	s.Connections = make(map[string]*cryptoauth.Connection)
-	s.KeyPair = new(cryptoauth.KeyPair)
+	server := new(cryptoauth.Node)
+	//server.Identity = new(cryptoauth.Identity)
+	server.Connections = make(map[string]*cryptoauth.Connection)
+	//server.KeyPair = new(cryptoauth.KeyPair)
 
 	config := readConfigFile("config.json")
 
-	keys := &cryptoauth.KeyPair{
-		PublicKey:  *cryptoauth.DecodePublicKeyString(config.PublicKey),
-		PrivateKey: *cryptoauth.DecodePrivateKeyString(config.PrivateKey),
+	server.Identity = &cryptoauth.Identity{
+		Keys: &cryptoauth.KeyPair{
+			PublicKey:  cryptoauth.DecodePublicKeyString(config.PublicKey),
+			PrivateKey: cryptoauth.DecodePrivateKeyString(config.PrivateKey),
+		},
+		IPv6: cryptoauth.HashPublicKeyString(config.PublicKey),
 	}
 
-	s.Keys = cryptoauth.NewCryptoState(keys, nil, false)
+	// s.Keys = cryptoauth.NewCryptoState(keys, nil, false)
 
-	s.Listen = config.Bind
-	s.Password = config.Password
+	server.Bind = config.Bind
+	server.Password = config.Password
 
-	if len(config.Password) > 0 {
-		passwd := new(cryptoauth.Passwd)
-		passwd.Hash = cryptoauth.HashPassword([]byte(config.Password))
-		s.Passwords = make(map[[32]byte]*cryptoauth.Passwd)
-		s.Passwords[passwd.Hash] = passwd
-	} else {
-		log.Fatal("Set a password in config.json")
-	}
+	// if len(config.Password) > 0 {
+	// 	passwd := new(cryptoauth.Passwd)
+	// 	passwd.Hash = cryptoauth.HashPassword([]byte(config.Password))
+	// 	s.Passwords = make(map[[32]byte]*cryptoauth.Passwd)
+	// 	s.Passwords[passwd.Hash] = passwd
+	// } else {
+	// 	log.Fatal("Set a password in config.json")
+	// }
 
 	sleepInterval := 60
 
-	listen(s)
+	listen(server)
 
 	for {
 		time.Sleep(time.Duration(sleepInterval) * time.Second)
