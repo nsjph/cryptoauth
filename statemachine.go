@@ -22,16 +22,17 @@ import (
 var (
 	clientStateMachine = 1
 	serverStateMachine = 2
-	resetEvent         = fsm.EventDesc{Name: "Reset", Src: []string{"HelloSend", "HelloReceive", "KeySend", "KeyReceive", "DataSend", "DataReceive"}, Dst: "Reset"}
-	helloSendEvent     = fsm.EventDesc{Name: "HelloSend", Src: []string{}, Dst: "HelloSend"}
-	helloReceiveEvent  = fsm.EventDesc{Name: "HelloReceive", Src: []string{"Reset", "DataReceive", "KeySend", "HelloReceive"}, Dst: "HelloReceive"}
-	keySendEvent       = fsm.EventDesc{Name: "KeySend", Src: []string{"HelloReceive", "KeyReceive"}, Dst: "KeySend"}
-	keyReceiveEvent    = fsm.EventDesc{Name: "KeyReceive", Src: []string{"KeySend", "HelloSend"}, Dst: "KeyReceive"}
-	dataSendEvent      = fsm.EventDesc{Name: "DataSend", Src: []string{"KeyReceive", "DataReceive"}, Dst: "DataSend"}
-	dataReceiveEvent   = fsm.EventDesc{Name: "DataReceive", Src: []string{"KeySend", "DataSend", "DataReceive"}, Dst: "DataReceive"}
-	establishedEvent   = fsm.EventDesc{Name: "Established", Src: []string{"DataReceive", "DataSend"}, Dst: "Established"}
-	clientEvents       = fsm.Events{helloSendEvent, keyReceiveEvent, keySendEvent, dataReceiveEvent, dataSendEvent}
-	serverEvents       = fsm.Events{helloReceiveEvent, keySendEvent, keyReceiveEvent, dataSendEvent, dataReceiveEvent}
+	resetEvent         = fsm.EventDesc{
+		Name: "Reset",
+		Src:  []string{"HelloSend", "HelloReceive", "KeySend", "KeyReceive", "Established"},
+		Dst:  "Reset"}
+	helloSendEvent    = fsm.EventDesc{Name: "HelloSend", Src: []string{}, Dst: "HelloSend"}
+	helloReceiveEvent = fsm.EventDesc{Name: "HelloReceive", Src: []string{"Reset", "KeySend", "HelloReceive", "Established"}, Dst: "HelloReceive"}
+	keySendEvent      = fsm.EventDesc{Name: "KeySend", Src: []string{"HelloReceive", "KeyReceive"}, Dst: "KeySend"}
+	keyReceiveEvent   = fsm.EventDesc{Name: "KeyReceive", Src: []string{"KeySend", "HelloSend"}, Dst: "KeyReceive"}
+	establishedEvent  = fsm.EventDesc{Name: "Established", Src: []string{"KeyReceive", "KeySend"}, Dst: "Established"}
+	clientEvents      = fsm.Events{resetEvent, helloSendEvent, keyReceiveEvent, keySendEvent, establishedEvent}
+	serverEvents      = fsm.Events{resetEvent, helloReceiveEvent, keySendEvent, keyReceiveEvent, establishedEvent}
 )
 
 func (c *Connection) serverEventCallbacks() map[string]fsm.Callback {
@@ -45,12 +46,6 @@ func (c *Connection) serverEventCallbacks() map[string]fsm.Callback {
 		"enter_KeySend":       func(e *fsm.Event) { c.NewKeyPacket(e) },
 		"before_KeyReceive":   func(e *fsm.Event) { c.ValidateKeyPacket(e) },
 		"enter_KeyReceive":    func(e *fsm.Event) { log.Println("enter_keyReceivedEvent") },
-		"before_DataSend":     func(e *fsm.Event) { log.Println("before_dataSendEvent") },
-		"enter_DataSend":      func(e *fsm.Event) { log.Println("enter_dataSentEvent") },
-		"after_DataSend":      func(e *fsm.Event) { log.Println("after_dataSentEvent") },
-		"before_DataReceive":  func(e *fsm.Event) { c.ValidateDataPacket(e) },
-		"enter_DataReceive":   func(e *fsm.Event) { c.DecodeDataPacket(e) },
-		"after_DataReceive":   func(e *fsm.Event) { log.Println("after_dataReceivedEvent") }}
-
+		"enter_Established":   func(e *fsm.Event) { c.HandshakeComplete(e) }}
 	return callbacks
 }

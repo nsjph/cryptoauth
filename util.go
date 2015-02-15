@@ -18,6 +18,8 @@ import (
 	"log"
 )
 
+var debugHandshake bool = true
+
 func isEmpty(x [32]byte) bool {
 	if x == [32]byte{} {
 		return true
