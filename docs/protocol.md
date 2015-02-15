@@ -1,4 +1,4 @@
-# Cryptoauth protocol guide
+# Cryptoauth Protocol Guide
 
 This is a supplement for those already familiar with the cjdns [whitepaper](https://github.com/cjdelisle/cjdns/blob/master/doc/Whitepaper.md). It is designed as a 'cheatsheet' for those looking to understand or implement the cryptoauth protocol.
 
@@ -115,3 +115,10 @@ The shared secret is used as an input for encrypting the temporary public key (a
 The shared secret is computed using the server private key, the client temporary public key, using the [box.Precompute(sharedKey, peersPublicKey, privateKey *[32]byte)](http://godoc.org/golang.org/x/crypto/nacl/box#Precompute) function.
 
 ### Shared Secrets for Data Packets 
+
+
+## License 
+
+[![Creative Commons License](https://i.creativecommons.org/l/by/4.0/88x31.png)](http://creativecommons.org/licenses/by/4.0/)
+
+[Cryptoauth Protocol Guide](https://github.com/nsjph/cryptoauth/blob/master/docs/protocol.md) by [JPH](mailto:jph@hackworth.be) is licensed under the [Creative Commons Attribution 4.0 International License](http://creativecommons.org/licenses/by/4.0/). 
