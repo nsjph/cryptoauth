@@ -231,7 +231,7 @@ func (c *CryptoState) NewTempKeys() (err error) {
 }
 
 func decryptDataPacket(p []byte, nonce uint32, isInitiator bool, secret *[32]byte) ([]byte, bool) {
-	convertedNonce := c.convertNonce(nonce, isInitiator)
+	convertedNonce := convertNonce(nonce, isInitiator)
 	return box.OpenAfterPrecomputation(p, p[4:], convertedNonce, secret)
 }
 
